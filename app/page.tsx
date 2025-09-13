@@ -25,12 +25,19 @@ export default function Home() {
         </h1>
         <Authenticated>
           <div className="flex flex-col gap-4">
-            <div className="text-center">
+            <div className="text-center space-y-4">
               <Link
                 href="/dashboard"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors inline-block"
               >
                 Go to Dashboard
+              </Link>
+              <br />
+              <Link
+                href="/excel-processor"
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-medium transition-colors inline-block"
+              >
+                Excel Metrics Processor
               </Link>
             </div>
             <Content />
