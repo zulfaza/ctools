@@ -12,7 +12,29 @@ import {
   applyCurrencyFormatting,
   applyMetricsFormatting,
   detectCurrencyFromData,
+  summaryHeaders,
+  summaryMetrics,
+  generateSummaryFormulas,
+  applySummaryFormatting,
+  trendHeaders,
+  generateTrendFormulas,
+  applyTrendFormatting,
 } from "@/lib/excel-helpers";
+
+const MONTH_MAP_STRING = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 export async function POST(request: NextRequest) {
   try {
@@ -76,7 +98,7 @@ export async function POST(request: NextRequest) {
 
     // Add new headers to clean data sheet (columns X, Y, Z, AA)
     newRawDataHeaders.forEach((header, index) => {
-      const columns = ["X", "Y", "Z", "AA"];
+      const columns = ["X", "Y", "Z", "AA", "AB"];
       const col = columns[index];
       cleanDataSheet.getCell(`${col}1`).value = header;
     });
@@ -105,7 +127,8 @@ export async function POST(request: NextRequest) {
     // Add metrics formulas (now referencing clean data)
     // Count unique dates from the clean data (column B - Start time)
     let uniqueDatesCount = 0;
-    const seenDates = new Set();
+    const seenDates = new Set<string>();
+    const uniqueMonths = new Set<number>();
 
     if (cleanLastRow > 1) {
       const dataRanges = buildDataRanges(2, cleanLastRow); // Clean data always starts at row 2
@@ -117,11 +140,13 @@ export async function POST(request: NextRequest) {
           // Convert datetime to date string
           let dateValue;
           if (startTimeCell.value instanceof Date) {
+            uniqueMonths.add(startTimeCell.value.getMonth());
             dateValue = startTimeCell.value.toISOString().split("T")[0];
           } else {
             // Handle other date formats
             const dateObj = new Date(startTimeCell.value as string | number);
             if (!isNaN(dateObj.getTime())) {
+              uniqueMonths.add(dateObj.getMonth());
               dateValue = dateObj.toISOString().split("T")[0];
             }
           }
@@ -133,7 +158,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const metricsLastRow = uniqueDatesCount; // +1 for header row
+      const metricsLastRow = uniqueDatesCount;
 
       // Special case for B2 - unique dates formula
       metricsSheet.getCell("B2").value = {
@@ -154,16 +179,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Apply cell formatting
-    console.log("Applying cell formatting...");
-
     // Detect currency from original data
     const detectedCurrency = detectCurrencyFromData(
       inputWorksheet,
       startRow,
       lastRow,
     );
-    console.log(`Detected currency: ${detectedCurrency}`);
 
     // Format clean data sheet
     if (cleanLastRow > 1) {
@@ -190,6 +211,59 @@ export async function POST(request: NextRequest) {
           detectedCurrency,
         );
       }
+    }
+
+    // Sheet 4: Summary (overall metrics)
+    const summarySheet = outputWorkbook.addWorksheet("summary");
+
+    // Add summary headers
+    summaryHeaders.forEach((header, index) => {
+      summarySheet.getCell(1, index + 1).value = header;
+    });
+
+    // Add summary metrics labels and formulas
+    if (cleanLastRow > 1) {
+      const summaryFormulas = generateSummaryFormulas(2, cleanLastRow);
+
+      summaryMetrics.forEach((metric, index) => {
+        const row = index + 2; // Start from row 2
+        summarySheet.getCell(`A${row}`).value = metric;
+        summarySheet.getCell(`B${row}`).value = {
+          formula: summaryFormulas[metric],
+        };
+      });
+
+      // Apply summary formatting
+      applySummaryFormatting(summarySheet, detectedCurrency);
+    }
+
+    // Sheet 5: Trend (monthly metrics)
+    const trendSheet = outputWorkbook.addWorksheet("trend");
+
+    // Add trend headers starting at B2
+    trendHeaders.forEach((header, index) => {
+      trendSheet.getCell(1, index + 1).value = header;
+    });
+
+    if (cleanLastRow > 1) {
+      const sortedMonths = Array.from(uniqueMonths).sort();
+      let row = 0;
+      // Add months to column A starting from A2
+      sortedMonths.forEach((month, index) => {
+        row = index + 2;
+
+        trendSheet.getCell(`A${row}`).value = month + 1;
+        trendSheet.getCell(`B${row}`).value = MONTH_MAP_STRING[month];
+
+        // Add trend formulas for this month
+        const formulas = generateTrendFormulas(row, 2, cleanLastRow);
+        Object.entries(formulas).forEach(([col, formula]) => {
+          const cell = trendSheet.getCell(`${col}${row}`);
+          cell.value = { formula };
+        });
+      });
+
+      applyTrendFormatting(trendSheet, 2, row);
     }
 
     // Generate the output Excel buffer

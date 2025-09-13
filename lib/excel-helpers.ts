@@ -1,3 +1,5 @@
+import { Worksheet } from "exceljs";
+
 export interface RangeStrings {
   dateR: string;
   timeTextR: string;
@@ -20,6 +22,7 @@ export interface DataRangeStrings {
   startTimeR: string;
   endTimeR: string;
   weekInYearR: string;
+  montIndex: string;
   grossR: string;
   directR: string;
   itemsR: string;
@@ -41,6 +44,7 @@ export function buildDataRanges(
     startTimeR: `'clean data'!${seg("Y")}`,
     endTimeR: `'clean data'!${seg("Z")}`,
     weekInYearR: `'clean data'!${seg("AA")}`,
+    montIndex: `'clean data'!${seg("AB")}`,
     grossR: `'clean data'!${seg("D")}`,
     directR: `'clean data'!${seg("E")}`,
     itemsR: `'clean data'!${seg("F")}`,
@@ -223,6 +227,7 @@ export const newRawDataHeaders = [
   "Start Time",
   "End Time",
   "Week in Year",
+  "Month",
 ];
 
 export const helperHeaders = [
@@ -276,12 +281,37 @@ export const metricsHeaders = [
   "AVG Share",
 ];
 
+export const summaryHeaders = ["Metric", "Value"];
+
+export const summaryMetrics = [
+  "Avg GMV/Sesi",
+  "Avg GMV/Day",
+  "Avg CTR",
+  "Avg CTOR",
+  "Avg Viewers",
+  "Avg Like",
+  "Avg Comment",
+  "Avg Share",
+];
+
+export const trendHeaders = [
+  "Month Index",
+  "Month",
+  "Avg CTR",
+  "Avg CTOR",
+  "Avg Viewers",
+  "Avg Like",
+  "Avg Comment",
+  "Avg Share",
+];
+
 export function generateRawDataFormulas(row: number) {
   return {
     X: `TEXT(B${row},"yyyy-mm-dd")`, // Start Date
     Y: `TEXT(B${row},"hh:mm")`, // Start Time
     Z: `TEXT(B${row}+(C${row}/86400),"hh:mm")`, // End Time
-    AA: `WEEKNUM(X${row},2)`, // Week in Year
+    AA: `WEEKNUM(X${row},2)`, // Week in Year,
+    AB: `MONTH(X${row})`, // Month
   };
 }
 
@@ -328,10 +358,8 @@ export function generateMetricsFormulas(
 }
 
 export function cleanAndCopyData(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  inputWorksheet: any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cleanDataSheet: any,
+  inputWorksheet: Worksheet,
+  cleanDataSheet: Worksheet,
   startRow: number,
   lastRow: number,
 ): void {
@@ -387,6 +415,40 @@ export function getAdvancedCurrencyFormat(currency: string = "IDR"): string {
   };
 
   return formats[currency.toUpperCase()] || "Rp#,##0.00_);[Red](Rp#,##0.00)";
+}
+
+export function generateSummaryFormulas(
+  startRow: number,
+  lastRow: number,
+): Record<string, string> {
+  const dataRanges = buildDataRanges(startRow, lastRow);
+
+  return {
+    "Avg GMV/Sesi": `ROUND(AVERAGE(${dataRanges.directR}),0)`,
+    "Avg GMV/Day": `ROUND(AVERAGE(metrics!H:H),0)`, // Average of Sum column from metrics
+    "Avg CTR": `ROUND(AVERAGE(${dataRanges.ctrR}),4)`,
+    "Avg CTOR": `ROUND(AVERAGE(${dataRanges.ctorR}),4)`,
+    "Avg Viewers": `ROUND(AVERAGE('clean data'!$M$${startRow}:$M$${lastRow}),0)`, // Viewers column
+    "Avg Like": `ROUND(AVERAGE(${dataRanges.likesR}),0)`,
+    "Avg Comment": `ROUND(AVERAGE(${dataRanges.commentsR}),0)`,
+    "Avg Share": `ROUND(AVERAGE(${dataRanges.sharesR}),0)`,
+  };
+}
+
+export function generateTrendFormulas(
+  row: number,
+  startRow: number,
+  lastRow: number,
+) {
+  const dataRanges = buildDataRanges(startRow, lastRow);
+  return {
+    C: `ROUND(AVERAGEIFS(${dataRanges.ctrR},${dataRanges.montIndex},A${row}),4)`, // Avg CTR
+    D: `ROUND(AVERAGEIFS(${dataRanges.ctorR},${dataRanges.montIndex},A${row}),4)`, // Avg CTOR
+    E: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.montIndex},A${row}),0)`, // Avg Viewers
+    F: `ROUND(AVERAGEIFS(${dataRanges.likesR},${dataRanges.montIndex},A${row}),0)`, // Avg Like
+    G: `ROUND(AVERAGEIFS(${dataRanges.commentsR},${dataRanges.montIndex},A${row}),0)`, // Avg Comment
+    H: `ROUND(AVERAGEIFS(${dataRanges.sharesR},${dataRanges.montIndex},A${row}),0)`, // Avg Share
+  };
 }
 
 export function applyCTRCTORFormatting(
@@ -469,8 +531,7 @@ export function applyMetricsFormatting(
 }
 
 export function detectCurrencyFromData(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  worksheet: any,
+  worksheet: Worksheet,
   startRow: number,
   lastRow: number,
 ): string {
@@ -496,4 +557,55 @@ export function detectCurrencyFromData(
 
   // Default to IDR (Indonesian Rupiah)
   return "IDR";
+}
+
+export function applySummaryFormatting(
+  worksheet: Worksheet,
+  currency: string = "IDR",
+): void {
+  const currencyFormat = getAdvancedCurrencyFormat(currency);
+
+  // Format Avg GMV/Sesi (row 2) and Avg GMV/Day (row 3) as currency
+  worksheet.getCell("B2").numFmt = currencyFormat; // Avg GMV/Sesi
+  worksheet.getCell("B3").numFmt = currencyFormat; // Avg GMV/Day
+
+  // Format Avg CTR (row 4) and Avg CTOR (row 5) as percentage
+  worksheet.getCell("B4").numFmt = "0.00%"; // Avg CTR
+  worksheet.getCell("B5").numFmt = "0.00%"; // Avg CTOR
+
+  // Format Avg Viewers, Likes, Comments, Shares as numbers (rows 6-9)
+  ["B6", "B7", "B8", "B9"].forEach((cell) => {
+    worksheet.getCell(cell).numFmt = "#,##0";
+  });
+
+  // Style the headers
+  ["A1", "B1"].forEach((cell) => {
+    const headerCell = worksheet.getCell(cell);
+    headerCell.font = { bold: true };
+    headerCell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+  });
+
+  // Style the metric names
+  for (let i = 2; i <= 9; i++) {
+    const metricCell = worksheet.getCell(`A${i}`);
+    metricCell.font = { bold: true };
+  }
+}
+
+export function applyTrendFormatting(
+  worksheet: Worksheet,
+  startRow: number,
+  lastRow: number,
+): void {
+  if (lastRow < startRow) return;
+  for (let row = startRow; row <= lastRow; row++) {
+    ["C", "D"].forEach((col) => {
+      const cell = worksheet.getCell(`${col}${row}`);
+      cell.numFmt = "0.00%";
+    });
+  }
 }

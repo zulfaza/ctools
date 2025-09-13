@@ -2,7 +2,6 @@
 
 ## Build Commands
 
-- `bun run build` - Build for production
 - `bun run lint` - Run ESLint
 - No test framework configured
 - **IMPORTANT**: Never run `bun run dev`, `bun run build` or any start commands

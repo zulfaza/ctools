@@ -75,7 +75,7 @@ export default function ExcelProcessorPage() {
           </h1>
           <p className="text-gray-600 dark:text-gray-300 mt-2">
             Upload your Excel file to generate metrics with raw data, helper
-            calculations, and summary tables
+            calculations, daily summaries, and overall summary statistics
           </p>
         </div>
 
@@ -138,8 +138,8 @@ export default function ExcelProcessorPage() {
           </h3>
           <ul className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
             <li>
-              • Creates 3 sheets: raw data (unchanged), metrics (summary), and
-              helper (normalized calculations)
+              • Creates 4 sheets: raw data (unchanged), clean data (normalized),
+              metrics (daily summaries), and summary (overall averages)
             </li>
             <li>
               • Generates formulas with absolute ranges based on your data
