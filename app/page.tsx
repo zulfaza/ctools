@@ -24,7 +24,17 @@ export default function Home() {
           Convex + Next.js + Clerk
         </h1>
         <Authenticated>
-          <Content />
+          <div className="flex flex-col gap-4">
+            <div className="text-center">
+              <Link
+                href="/dashboard"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors"
+              >
+                Go to Dashboard
+              </Link>
+            </div>
+            <Content />
+          </div>
         </Authenticated>
         <Unauthenticated>
           <SignInForm />
