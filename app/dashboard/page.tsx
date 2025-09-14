@@ -347,31 +347,6 @@ export default function Page() {
             </div>
           </div>
         </div>
-
-        {/* Features Overview */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="rounded-xl border bg-card p-4">
-            <h4 className="font-semibold mb-2">📊 Metrics Analysis</h4>
-            <p className="text-sm text-muted-foreground">
-              Comprehensive daily metrics including revenue stats, engagement
-              rates, and performance indicators.
-            </p>
-          </div>
-          <div className="rounded-xl border bg-card p-4">
-            <h4 className="font-semibold mb-2">⏰ Prime Time Detection</h4>
-            <p className="text-sm text-muted-foreground">
-              Automatically calculates optimal streaming times based on revenue,
-              CTR, and CTOR performance.
-            </p>
-          </div>
-          <div className="rounded-xl border bg-card p-4">
-            <h4 className="font-semibold mb-2">📈 Formula-Based</h4>
-            <p className="text-sm text-muted-foreground">
-              All calculations use Excel formulas with absolute ranges, ensuring
-              accuracy and transparency.
-            </p>
-          </div>
-        </div>
       </div>
     </SidebarInset>
   );
