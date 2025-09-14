@@ -9,43 +9,128 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
-import { Upload, Download, FileSpreadsheet, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import {
+  Upload,
+  Download,
+  FileSpreadsheet,
+  AlertCircle,
+  X,
+  Plus,
+} from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+
+interface FileWithId {
+  id: string;
+  file: File;
+  status: "pending" | "processing" | "completed" | "error";
+  error?: string;
+}
 
 export default function Page() {
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<FileWithId[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validateFile = (file: File): string | null => {
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      return "Please select an Excel file (.xlsx or .xls)";
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      // 50MB limit
+      return "File size must be less than 50MB";
+    }
+    return null;
+  };
+
+  const addFiles = useCallback(
+    (newFiles: File[]) => {
+      const validFiles: FileWithId[] = [];
+      const errors: string[] = [];
+
+      newFiles.forEach((file) => {
+        const validationError = validateFile(file);
+        if (validationError) {
+          errors.push(`${file.name}: ${validationError}`);
+        } else if (
+          !files.some(
+            (f) => f.file.name === file.name && f.file.size === file.size,
+          )
+        ) {
+          validFiles.push({
+            id: `${file.name}-${Date.now()}-${Math.random()}`,
+            file,
+            status: "pending",
+          });
+        }
+      });
+
+      if (errors.length > 0) {
+        setError(errors.join("; "));
+      } else {
+        setError(null);
+      }
+
+      if (validFiles.length > 0) {
+        setFiles((prev) => [...prev, ...validFiles]);
+      }
+    },
+    [files],
+  );
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      // Validate file type
-      if (
-        !selectedFile.name.endsWith(".xlsx") &&
-        !selectedFile.name.endsWith(".xls")
-      ) {
-        setError("Please select an Excel file (.xlsx or .xls)");
-        setFile(null);
-        return;
-      }
-      setFile(selectedFile);
-      setError(null);
+    const selectedFiles = Array.from(event.target.files || []);
+    if (selectedFiles.length > 0) {
+      addFiles(selectedFiles);
     }
   };
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      addFiles(droppedFiles);
+    },
+    [addFiles],
+  );
+
+  const removeFile = (id: string) => {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const clearAllFiles = () => {
+    setFiles([]);
+    setError(null);
+  };
+
   const handleProcess = async () => {
-    if (!file) return;
+    if (files.length === 0) return;
 
     setIsProcessing(true);
     setError(null);
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+
+      // Add all files to form data
+      files.forEach((fileItem, index) => {
+        formData.append(`file${index}`, fileItem.file);
+      });
 
       const response = await fetch("/api/process-excel", {
         method: "POST",
@@ -54,27 +139,32 @@ export default function Page() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to process file");
+        throw new Error(errorData.error || "Failed to process files");
       }
 
-      // Download the processed file
+      // Download the processed file(s)
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.style.display = "none";
       a.href = url;
-      a.download = `processed_${file.name}`;
+
+      if (files.length === 1) {
+        a.download = `processed_${files[0].file.name}`;
+      } else {
+        a.download = "processed_excel_files.zip";
+      }
+
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
       // Reset form
-      setFile(null);
-      const fileInput = document.getElementById(
-        "file-input",
-      ) as HTMLInputElement;
-      if (fileInput) fileInput.value = "";
+      clearAllFiles();
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -115,58 +205,124 @@ export default function Page() {
                 Excel Metrics Processor
               </h2>
               <p className="text-muted-foreground">
-                Upload your livestream data to generate comprehensive metrics
-                and analysis
+                Upload single or multiple Excel files to generate comprehensive
+                metrics and analysis
               </p>
             </div>
           </div>
 
           <div className="space-y-4">
-            {/* File Upload */}
+            {/* Drag and Drop Upload Area */}
             <div className="space-y-2">
-              <label htmlFor="file-input" className="text-sm font-medium">
-                Select Excel File
-              </label>
-              <div className="flex items-center gap-3">
-                <Input
-                  id="file-input"
+              <label className="text-sm font-medium">Select Excel Files</label>
+              <div
+                className={`relative border-2 border-dashed rounded-lg transition-colors ${
+                  isDragOver
+                    ? "border-primary bg-primary/5"
+                    : "border-muted-foreground/25 hover:border-primary/50"
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".xlsx,.xls"
+                  multiple
                   onChange={handleFileSelect}
-                  className="flex-1"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
-                <Button
-                  onClick={handleProcess}
-                  disabled={!file || isProcessing}
-                  className="min-w-[120px]"
-                >
-                  {isProcessing ? (
-                    <>
-                      <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="mr-2 h-4 w-4" />
-                      Process
-                    </>
-                  )}
-                </Button>
+                <div className="flex flex-col items-center justify-center py-12 px-6">
+                  <div className="rounded-full bg-primary/10 p-3 mb-4">
+                    <Upload className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-medium mb-1">
+                      Drop your Excel files here
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      or click to browse files
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="pointer-events-none"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Choose Files
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* File Info */}
-            {file && (
-              <div className="rounded-lg bg-muted p-3">
-                <div className="flex items-center gap-2">
-                  <Upload className="h-4 w-4 text-green-600" />
-                  <span className="text-sm font-medium">Selected file:</span>
-                  <span className="text-sm">{file.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    ({(file.size / 1024).toFixed(1)} KB)
-                  </span>
+            {/* File List */}
+            {files.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium">
+                    Selected Files ({files.length})
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearAllFiles}
+                    className="text-xs"
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {files.map((fileItem) => (
+                    <div
+                      key={fileItem.id}
+                      className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border"
+                    >
+                      <FileSpreadsheet className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {fileItem.file.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(fileItem.file.size / 1024).toFixed(1)} KB
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeFile(fileItem.id)}
+                        className="h-8 w-8 p-0 flex-shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+
+            {/* Process Button */}
+            {files.length > 0 && (
+              <Button
+                onClick={handleProcess}
+                disabled={isProcessing}
+                className="w-full"
+                size="lg"
+              >
+                {isProcessing ? (
+                  <>
+                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    Processing {files.length} file
+                    {files.length !== 1 ? "s" : ""}...
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    Process {files.length} file{files.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </Button>
             )}
 
             {/* Error Display */}
@@ -193,9 +349,10 @@ export default function Page() {
                 1
               </div>
               <div>
-                <strong>Upload your Excel file</strong> containing livestream
+                <strong>Upload your Excel file(s)</strong> containing livestream
                 data with the expected headers: Livestream, Start time,
-                Duration, Gross revenue, Direct GMV, Items sold, etc.
+                Duration, Gross revenue, Direct GMV, Items sold, etc. You can
+                select multiple files at once.
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -213,9 +370,10 @@ export default function Page() {
                 3
               </div>
               <div>
-                <strong>Download the processed file</strong> with comprehensive
-                metrics including revenue analysis, engagement stats, and prime
-                time calculations.
+                <strong>Download the processed file(s)</strong> with
+                comprehensive metrics including revenue analysis, engagement
+                stats, and prime time calculations. Multiple files are returned
+                as a ZIP archive.
               </div>
             </div>
           </div>
