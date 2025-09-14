@@ -2,6 +2,7 @@
 
 import { useUser } from "@clerk/nextjs";
 import { AppSidebar } from "@/components/app-sidebar";
+import { TopBar } from "@/components/top-bar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
 export default function DashboardLayout({
@@ -34,7 +35,10 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      {children}
+      <div className="flex-1 flex flex-col min-h-screen">
+        <TopBar />
+        {children}
+      </div>
     </SidebarProvider>
   );
 }
