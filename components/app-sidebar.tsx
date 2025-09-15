@@ -3,6 +3,7 @@
 import * as React from "react";
 import { FileChartColumnIncreasing } from "lucide-react";
 import { OrganizationSwitcher } from "@clerk/nextjs";
+import Link from "next/link";
 
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
@@ -11,6 +12,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
 
 const data = {
@@ -26,7 +28,17 @@ const data = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar variant="inset" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="space-y-2">
+        <div className="flex items-center gap-2 rounded-md px-1.5 py-1.5 ">
+          <div
+            className="h-10 w-10 rounded-lg bg-sidebar-accent text-sidebar-accent-foreground grid place-items-center"
+            aria-hidden
+          >
+            <FileChartColumnIncreasing className="size-5" />
+          </div>
+          <span className="text-lg font-semibold tracking-tight">Ctools</span>
+        </div>
+        {/* Organization switcher (smaller) */}
         <OrganizationSwitcher
           hidePersonal
           afterCreateOrganizationUrl="/dashboard"
@@ -39,16 +51,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               colorTextSecondary: "var(--sidebar-accent-foreground)",
               colorNeutral: "var(--sidebar-accent-foreground)",
               borderRadius: "0.5rem",
-              fontSize : "1rem",
+              fontSize: "0.875rem",
             },
             elements: {
-              rootBox: "w-full",
-              organizationSwitcherTrigger: "w-full justify-start bg-transparent hover:bg-sidebar-accent hover:text-sidebar-accent-foreground p-2 rounded-lg data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
-              organizationSwitcherTriggerIcon: "size-8 rounded-lg",
+              rootBox: "w-full! mt-0.5",
+              organizationSwitcherTrigger:
+                "w-full px-4! py-3! border-2! justify-between! bg-transparent hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-lg data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+              organizationSwitcherTriggerIcon: "size-6 rounded-lg",
               organizationPreviewTextContainer: "flex-1 text-left",
-              organizationPreviewMainIdentifier: "text-sm font-medium truncate",
-              organizationPreviewSecondaryIdentifier: "text-xs truncate",
-              avatarBox : "h-10! w-10!"
+              organizationPreviewMainIdentifier: "text-xs font-medium truncate",
+              organizationPreviewSecondaryIdentifier: "text-[10px] truncate",
             },
           }}
         />

@@ -1,10 +1,15 @@
-"use client";
-
 import Link from "next/link";
 import { UserButton, SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { FileSpreadsheet, LayoutDashboard, Wrench } from "lucide-react";
+import { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "CTools",
+  description:
+    "A simple hub to access dashboards and utilities. Tools may be independent — this page keeps them discoverable and easy to reach.",
+};
 
 export default function Home() {
   return (
@@ -12,7 +17,10 @@ export default function Home() {
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span className="inline-block h-2 w-2 rounded-sm bg-primary" aria-hidden />
+            <span
+              className="inline-block h-2 w-2 rounded-sm bg-primary"
+              aria-hidden
+            />
             <span>ctools</span>
           </Link>
           <nav className="flex items-center gap-2">
@@ -51,7 +59,9 @@ export default function Home() {
             </Link>
             <SignedOut>
               <SignInButton mode="modal">
-                <Button variant="outline" size="lg">Sign in</Button>
+                <Button variant="outline" size="lg">
+                  Sign in
+                </Button>
               </SignInButton>
             </SignedOut>
           </div>
@@ -60,7 +70,10 @@ export default function Home() {
         <Separator className="my-12" />
 
         {/* Tools grid */}
-        <section aria-label="Available tools" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <section
+          aria-label="Available tools"
+          className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+        >
           <ToolCard
             href="/dashboard"
             title="Excel Reports"
@@ -83,9 +96,7 @@ export default function Home() {
 
         {/* Footer */}
         <footer className="mt-16 text-center text-xs text-muted-foreground">
-          <p>
-            Built with Next.js, Convex, Clerk, and shadcn/ui.
-          </p>
+          <p>Built with Next.js, Convex, Clerk, and shadcn/ui.</p>
         </footer>
       </main>
     </>
