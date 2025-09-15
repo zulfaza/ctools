@@ -1,4 +1,4 @@
-# Agent Guidelines for c-toolkit
+# Agent Guidelines for ctools
 
 ## Build Commands
 
