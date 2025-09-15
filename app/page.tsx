@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { UserButton, SignInButton, SignedIn, SignedOut } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -17,15 +18,31 @@ export default function Home() {
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 font-semibold">
-            <span
-              className="inline-block h-2 w-2 rounded-sm bg-primary"
-              aria-hidden
+            <Image
+              src="/logo.png"
+              alt="CTools"
+              width={540}
+              height={192}
+              className="h-8 w-auto"
             />
-            <span>ctools</span>
+            <span className="hidden">ctools</span>
           </Link>
           <nav className="flex items-center gap-2">
             <SignedOut>
-              <SignInButton mode="modal">
+              <SignInButton
+                mode="modal"
+                appearance={{
+                  variables: {
+                    colorBackground: "var(--background)",
+                    colorInputBackground: "var(--background)",
+                    colorNeutral: "var(--foreground)",
+                    colorText: "var(--foreground)",
+                    colorTextSecondary: "var(--muted-foreground))",
+                    colorPrimary: "var(--primary)",
+                    borderRadius: "calc(var(--radius) - 2px)",
+                  },
+                }}
+              >
                 <Button variant="outline" size="sm" aria-label="Sign in">
                   Sign in
                 </Button>
@@ -58,7 +75,20 @@ export default function Home() {
               <Button size="lg">Open Dashboard</Button>
             </Link>
             <SignedOut>
-              <SignInButton mode="modal">
+              <SignInButton
+                mode="modal"
+                appearance={{
+                  variables: {
+                    colorNeutral: "var(--foreground)",
+                    colorBackground: "var(--background)",
+                    colorInputBackground: "var(--background)",
+                    colorText: "var(--foreground)",
+                    colorTextSecondary: "var(--muted-foreground))",
+                    colorPrimary: "var(--primary)",
+                    borderRadius: "calc(var(--radius) - 2px)",
+                  },
+                }}
+              >
                 <Button variant="outline" size="lg">
                   Sign in
                 </Button>

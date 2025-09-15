@@ -3,7 +3,6 @@
 import * as React from "react";
 import { FileChartColumnIncreasing } from "lucide-react";
 import { OrganizationSwitcher } from "@clerk/nextjs";
-import Link from "next/link";
 
 import { NavMain } from "@/components/nav-main";
 import { NavUser } from "@/components/nav-user";
@@ -12,7 +11,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
 
 const data = {

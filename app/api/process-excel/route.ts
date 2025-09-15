@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import {
+  ExcelFormat,
+  detectExcelFormat,
   detectDataLength,
   metricsHeaders,
-  newRawDataHeaders,
+  tiktokNewRawDataHeaders,
+  shopeeNewRawDataHeaders,
   generateRawDataFormulas,
   generateMetricsFormulas,
   buildDataRanges,
@@ -51,8 +54,20 @@ async function processExcelFile(
     throw new Error("No worksheet found in the file");
   }
 
+  // Detect Excel format first
+  const format = detectExcelFormat(inputWorksheet);
+  if (format === ExcelFormat.UNSUPPORTED) {
+    throw new Error(
+      "Unsupported file format. Supported formats: TikTok Livestream, Shopee Daily Report",
+    );
+  }
+
   // Detect data start row and length
-  const { startRow, lastRow } = detectDataLength(inputWorksheet);
+  const { startRow, lastRow } = detectDataLength(
+    inputWorksheet,
+    undefined,
+    format,
+  );
 
   console.log(
     `Data starts at row ${startRow}, last row = ${lastRow}, ${lastRow - startRow + 1} data rows`,
@@ -82,23 +97,31 @@ async function processExcelFile(
   });
 
   // Clean and copy data to clean data sheet
-  cleanAndCopyData(inputWorksheet, cleanDataSheet, startRow, lastRow);
+  cleanAndCopyData(inputWorksheet, cleanDataSheet, startRow, lastRow, format);
 
   // Calculate clean data dimensions (always starts at row 2)
   const cleanDataRows = lastRow - startRow + 1;
   const cleanLastRow = cleanDataRows + 1; // +1 because clean data starts at row 2
 
-  // Add new headers to clean data sheet (columns X, Y, Z, AA)
-  newRawDataHeaders.forEach((header, index) => {
-    const columns = ["X", "Y", "Z", "AA", "AB"];
-    const col = columns[index];
+  // Add new headers to clean data sheet based on format
+  const formatHeaders =
+    format === ExcelFormat.SHOPEE_DAILY
+      ? shopeeNewRawDataHeaders
+      : tiktokNewRawDataHeaders;
+  const startColumns =
+    format === ExcelFormat.SHOPEE_DAILY
+      ? ["AE", "AF", "AG", "AH", "AI"]
+      : ["X", "Y", "Z", "AA", "AB"];
+
+  formatHeaders.forEach((header, index) => {
+    const col = startColumns[index];
     cleanDataSheet.getCell(`${col}1`).value = header;
   });
 
   // Add formulas for the new columns in clean data (using row 2+ as data start)
   if (cleanLastRow > 1) {
     for (let row = 2; row <= cleanLastRow; row++) {
-      const formulas = generateRawDataFormulas(row);
+      const formulas = generateRawDataFormulas(row, format);
 
       // Set formulas for each new column
       Object.entries(formulas).forEach(([col, formula]) => {
@@ -123,20 +146,21 @@ async function processExcelFile(
   const uniqueMonths = new Set<number>();
 
   if (cleanLastRow > 1) {
-    const dataRanges = buildDataRanges(2, cleanLastRow); // Clean data always starts at row 2
+    const dataRanges = buildDataRanges(2, cleanLastRow, format); // Clean data always starts at row 2
 
-    // Scan through clean data to count unique dates
+    // Scan through clean data to count unique dates based on format
+    const dateColumn = format === ExcelFormat.SHOPEE_DAILY ? "AE" : "B";
     for (let row = 2; row <= cleanLastRow; row++) {
-      const startTimeCell = cleanDataSheet.getCell(`B${row}`);
-      if (startTimeCell.value && startTimeCell.value !== "") {
+      const dateCell = cleanDataSheet.getCell(`${dateColumn}${row}`);
+      if (dateCell.value && dateCell.value !== "") {
         // Convert datetime to date string
         let dateValue;
-        if (startTimeCell.value instanceof Date) {
-          uniqueMonths.add(startTimeCell.value.getMonth());
-          dateValue = startTimeCell.value.toISOString().split("T")[0];
+        if (dateCell.value instanceof Date) {
+          uniqueMonths.add(dateCell.value.getMonth());
+          dateValue = dateCell.value.toISOString().split("T")[0];
         } else {
           // Handle other date formats
-          const dateObj = new Date(startTimeCell.value as string | number);
+          const dateObj = new Date(dateCell.value as string | number);
           if (!isNaN(dateObj.getTime())) {
             uniqueMonths.add(dateObj.getMonth());
             dateValue = dateObj.toISOString().split("T")[0];
@@ -159,7 +183,7 @@ async function processExcelFile(
 
     // Add formulas only for rows that have unique dates (rows 2 to metricsLastRow)
     for (let row = 2; row <= metricsLastRow; row++) {
-      const formulas = generateMetricsFormulas(row, 2, cleanLastRow); // Clean data starts at row 2
+      const formulas = generateMetricsFormulas(row, 2, cleanLastRow, format); // Clean data starts at row 2
       // Set formulas for each column (skip B since it's handled specially)
       Object.entries(formulas).forEach(([col, formula]) => {
         if (col !== "B" || row === 2) {
@@ -210,7 +234,7 @@ async function processExcelFile(
 
   // Add summary metrics labels and formulas
   if (cleanLastRow > 1) {
-    const summaryFormulas = generateSummaryFormulas(2, cleanLastRow);
+    const summaryFormulas = generateSummaryFormulas(2, cleanLastRow, format);
 
     summaryMetrics.forEach((metric, index) => {
       const row = index + 2; // Start from row 2
@@ -243,7 +267,7 @@ async function processExcelFile(
       trendSheet.getCell(`B${row}`).value = MONTH_MAP_STRING[month];
 
       // Add trend formulas for this month
-      const formulas = generateTrendFormulas(row, 2, cleanLastRow);
+      const formulas = generateTrendFormulas(row, 2, cleanLastRow, format);
       Object.entries(formulas).forEach(([col, formula]) => {
         const cell = trendSheet.getCell(`${col}${row}`);
         cell.value = { formula };

@@ -1,14 +1,23 @@
-# Welcome to your Convex + Next.js + Clerk app
+# CTools
 
-This is a [Convex](https://convex.dev/) project created with [`npm create convex`](https://www.npmjs.com/package/create-convex).
+<img src="public/logo.png" alt="CTools" width="270" height="96">
 
-After the initial setup (<2 minutes) you'll have a working full-stack app using:
+Your Internal Tools, in One Place. A simple hub to access dashboards and utilities that keeps tools discoverable and easy to reach.
 
-- Convex as your backend (database, server logic)
-- [React](https://react.dev/) as your frontend (web page interactivity)
-- [Next.js](https://nextjs.org/) for optimized web hosting and page routing
-- [Tailwind](https://tailwindcss.com/) for building great looking accessible UI
+## Features
+
+- **Excel Reports Processor** - Upload one or more spreadsheets to generate combined metrics and summaries
+- **Collective Subscription Management** - Manage shared subscriptions and split costs among team members _(coming soon)_
+- **Main Dashboard** - Overview and quick access to currently available utilities
+- **Misc Utilities** - A growing set of helper tools with functions that vary by use-case
+
+## Tech Stack
+
+- [Next.js 15](https://nextjs.org/) with React 19 for the frontend
+- [Convex](https://convex.dev/) as the backend (database, server logic)
 - [Clerk](https://clerk.com/) for authentication
+- [Tailwind CSS](https://tailwindcss.com/) with [shadcn/ui](https://ui.shadcn.com/) components
+- [Bun](https://bun.sh/) as the package manager
 
 ## Get started
 
