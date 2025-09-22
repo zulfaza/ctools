@@ -24,6 +24,7 @@ import {
   generateTrendFormulas,
   applyTrendFormatting,
 } from "@/lib/excel-helpers";
+import { TZDate } from "@date-fns/tz";
 
 const MONTH_MAP_STRING = [
   "Jan",
@@ -154,19 +155,25 @@ async function processExcelFile(
       const dateCell = cleanDataSheet.getCell(`${dateColumn}${row}`);
       if (dateCell.value && dateCell.value !== "") {
         // Convert datetime to date string
+
         let dateValue;
         if (dateCell.value instanceof Date) {
           uniqueMonths.add(dateCell.value.getMonth());
           dateValue = dateCell.value.toISOString().split("T")[0];
-        } else {
-          // Handle other date formats
-          const dateObj = new Date(dateCell.value as string | number);
+        } else if (
+          typeof dateCell.value === "string" ||
+          typeof dateCell.value === "number"
+        ) {
+          const dateObj =
+            typeof dateCell.value === "string" //use trinary to fix type error
+              ? new TZDate(dateCell.value)
+              : new Date(dateCell.value);
+
           if (!isNaN(dateObj.getTime())) {
             uniqueMonths.add(dateObj.getMonth());
             dateValue = dateObj.toISOString().split("T")[0];
           }
         }
-
         if (dateValue && !seenDates.has(dateValue)) {
           seenDates.add(dateValue);
           uniqueDatesCount++;
@@ -174,7 +181,7 @@ async function processExcelFile(
       }
     }
 
-    const metricsLastRow = uniqueDatesCount;
+    const metricsLastRow = uniqueDatesCount + 1; // +1 because metrics starts at row 2
 
     // Special case for B2 - unique dates formula
     metricsSheet.getCell("B2").value = {
@@ -202,18 +209,13 @@ async function processExcelFile(
     lastRow,
   );
 
-  // Format clean data sheet
-  if (cleanLastRow > 1) {
-    // Apply CTR/CTOR percentage formatting (columns V and W)
-    applyCTRCTORFormatting(cleanDataSheet, 2, cleanLastRow);
-
-    // Apply currency formatting to revenue columns
-    applyCurrencyFormatting(cleanDataSheet, 2, cleanLastRow, detectedCurrency);
-  }
-
-  // Format metrics sheet
   if (cleanLastRow > 1) {
     const metricsFormatLastRow = uniqueDatesCount;
+    // Apply CTR/CTOR percentage formatting (columns V and W)
+    applyCTRCTORFormatting(cleanDataSheet, 2, cleanLastRow);
+    // Apply currency formatting to revenue columns
+    applyCurrencyFormatting(cleanDataSheet, 2, cleanLastRow, detectedCurrency);
+
     if (metricsFormatLastRow > 1) {
       applyMetricsFormatting(
         metricsSheet,
