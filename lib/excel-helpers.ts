@@ -98,9 +98,10 @@ export function detectExcelFormat(worksheet: Worksheet): ExcelFormat {
 
     // Check for TikTok Livestream format
     if (
-      valueA.includes("livestream") &&
-      valueB.includes("start time") &&
-      valueC.includes("duration")
+      (valueA.includes("livestream") ||
+        valueA.includes("streaming langsung")) &&
+      (valueB.includes("start time") || valueB.includes("waktu mulai")) &&
+      (valueC.includes("duration") || valueC.includes("durasi"))
     ) {
       return ExcelFormat.TIKTOK_LIVESTREAM;
     }
@@ -136,9 +137,10 @@ export function detectDataStartRow(
     if (detectedFormat === ExcelFormat.TIKTOK_LIVESTREAM) {
       // Check for TikTok headers
       if (
-        valueA.includes("livestream") &&
-        valueB.includes("start time") &&
-        valueC.includes("duration")
+        (valueA.includes("livestream") ||
+          valueA.includes("streaming langsung")) &&
+        (valueB.includes("start time") || valueB.includes("waktu mulai")) &&
+        (valueC.includes("duration") || valueC.includes("durasi"))
       ) {
         return row + 1; // Data starts in the next row
       }
