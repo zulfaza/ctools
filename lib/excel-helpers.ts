@@ -106,11 +106,14 @@ export function detectExcelFormat(worksheet: Worksheet): ExcelFormat {
       return ExcelFormat.TIKTOK_LIVESTREAM;
     }
 
-    // Check for Shopee Daily format
+    // Check for Shopee Daily format (English and Bahasa)
     if (
-      valueA.includes("data period") &&
+      (valueA.includes("data period") || valueA.includes("periode data")) &&
       valueB.includes("user id") &&
-      (valueC.includes("sales") || valueC.includes("placed order"))
+      (valueC.includes("sales") ||
+        valueC.includes("placed order") ||
+        valueC.includes("penjualan") ||
+        valueC.includes("no."))
     ) {
       return ExcelFormat.SHOPEE_DAILY;
     }
@@ -145,11 +148,14 @@ export function detectDataStartRow(
         return row + 1; // Data starts in the next row
       }
     } else if (detectedFormat === ExcelFormat.SHOPEE_DAILY) {
-      // Check for Shopee headers
+      // Check for Shopee headers (English and Bahasa)
       if (
-        valueA.includes("data period") &&
+        (valueA.includes("data period") || valueA.includes("periode data")) &&
         valueB.includes("user id") &&
-        (valueC.includes("sales") || valueC.includes("placed order"))
+        (valueC.includes("sales") ||
+          valueC.includes("placed order") ||
+          valueC.includes("penjualan") ||
+          valueC.includes("no."))
       ) {
         return row + 1; // Data starts in the next row
       }
