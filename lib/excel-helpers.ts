@@ -2,8 +2,108 @@ import { Worksheet } from "exceljs";
 
 export enum ExcelFormat {
   TIKTOK_LIVESTREAM = "TIKTOK_LIVESTREAM",
-  SHOPEE_DAILY = "SHOPEE_DAILY",
+  SHOPEE_MONTHLY = "SHOPEE_MONTHLY",
   UNSUPPORTED = "UNSUPPORTED",
+}
+
+/**
+ * Column cleaning rule type
+ */
+export type ColumnCleaningRule = "currency" | "percentage" | "numeric" | "text" | "duration";
+
+/**
+ * Column cleaning rules mapping (0-based column index -> cleaning rule)
+ */
+export type ColumnCleaningRules = Record<number, ColumnCleaningRule>;
+
+/**
+ * Detection result for format detection
+ */
+export interface FormatDetectionResult {
+  formatId: ExcelFormat;
+  startRow: number;
+}
+
+/**
+ * Excel format definition interface.
+ * 
+ * To add a new format:
+ * 1. Create an object implementing this interface with all required properties
+ * 2. Register it using `registerExcelFormat()` or add it to the `EXCEL_FORMATS` array
+ * 3. Add the format ID to the `ExcelFormat` enum
+ * 
+ * Example:
+ * const myFormat: ExcelFormatDefinition = {
+ *   id: ExcelFormat.MY_FORMAT,
+ *   headers: ["Header1", "Header2"],
+ *   columnCleaningRules: { 0: "text", 1: "numeric" },
+ *   newRawDataHeaders: ["Date", "Time"],
+ *   newRawDataColumns: ["X", "Y"],
+ *   detect: (worksheet) => { return 2; },
+ *   buildDataRanges: (startRow, lastRow) => ({ startDateR: "...", ... }),
+ *   generateRawDataFormulas: (row) => ({ X: "FORMULA", ... }),
+ *   generateMetricsFormulas: (row, startRow, lastRow) => ({ A: "FORMULA", ... }),
+ *   generateSummaryFormulas: (startRow, lastRow) => ({ "Metric": "FORMULA", ... }),
+ *   generateTrendFormulas: (row, startRow, lastRow) => ({ C: "FORMULA", ... }),
+ * };
+ */
+export interface ExcelFormatDefinition {
+  /** Unique format identifier */
+  id: ExcelFormat;
+  
+  /** Column headers for this format */
+  headers: readonly string[];
+  
+  /** Column cleaning rules (0-based index -> cleaning rule type) */
+  columnCleaningRules: ColumnCleaningRules;
+  
+  /** Headers for new raw data columns to append */
+  newRawDataHeaders: readonly string[];
+  
+  /** Column letters where new raw data headers should be placed */
+  newRawDataColumns: readonly string[];
+  
+  /**
+   * Detect if this format matches the worksheet and return the data start row.
+   * Returns the start row number if detected, or null/undefined if not detected.
+   */
+  detect: (worksheet: Worksheet) => number | null;
+  
+  /**
+   * Build data range strings for formulas
+   */
+  buildDataRanges: (startRow: number, lastRow: number) => DataRangeStrings;
+  
+  /**
+   * Generate raw data formulas for a specific row
+   */
+  generateRawDataFormulas: (row: number) => Record<string, string>;
+  
+  /**
+   * Generate metrics formulas for a specific row
+   */
+  generateMetricsFormulas: (
+    row: number,
+    startRow: number,
+    lastRow: number,
+  ) => Record<string, string>;
+  
+  /**
+   * Generate summary formulas
+   */
+  generateSummaryFormulas: (
+    startRow: number,
+    lastRow: number,
+  ) => Record<string, string>;
+  
+  /**
+   * Generate trend formulas for a specific row
+   */
+  generateTrendFormulas: (
+    row: number,
+    startRow: number,
+    lastRow: number,
+  ) => Record<string, string>;
 }
 
 export interface RangeStrings {
@@ -38,131 +138,132 @@ export interface DataRangeStrings {
   sharesR: string;
   ctrR: string;
   ctorR: string;
+  gmv1kShowsR: string;
 }
+
+/**
+ * Registry of all registered Excel formats
+ */
+const EXCEL_FORMATS_REGISTRY: ExcelFormatDefinition[] = [];
+
+/**
+ * Register a new Excel format definition.
+ * Formats are checked in registration order during detection.
+ * 
+ * @param formatDef The format definition to register
+ */
+export function registerExcelFormat(formatDef: ExcelFormatDefinition): void {
+  // Prevent duplicate registrations
+  if (EXCEL_FORMATS_REGISTRY.some((f) => f.id === formatDef.id)) {
+    console.warn(
+      `Format ${formatDef.id} is already registered. Skipping duplicate registration.`,
+    );
+    return;
+  }
+  EXCEL_FORMATS_REGISTRY.push(formatDef);
+}
+
+/**
+ * Get a format definition by its ID
+ * 
+ * @param formatId The format identifier
+ * @returns The format definition or undefined if not found
+ */
+export function getFormatDefinition(
+  formatId: ExcelFormat,
+): ExcelFormatDefinition | undefined {
+  return EXCEL_FORMATS_REGISTRY.find((f) => f.id === formatId);
+}
+
+/**
+ * Get all registered format definitions
+ * 
+ * @returns Array of all registered format definitions
+ */
+export function getAvailableFormats(): ExcelFormatDefinition[] {
+  return [...EXCEL_FORMATS_REGISTRY];
+}
+
+/**
+ * Detect the Excel format from a worksheet by checking all registered formats
+ * 
+ * @param worksheet The worksheet to detect
+ * @returns Detection result with format ID and start row, or UNSUPPORTED if no match
+ */
+function detectFormat(
+  worksheet: Worksheet,
+): FormatDetectionResult {
+  for (const formatDef of EXCEL_FORMATS_REGISTRY) {
+    const startRow = formatDef.detect(worksheet);
+    if (startRow !== null && startRow !== undefined) {
+      return {
+        formatId: formatDef.id,
+        startRow,
+      };
+    }
+  }
+  return {
+    formatId: ExcelFormat.UNSUPPORTED,
+    startRow: 2, // Default fallback
+  };
+}
+
+// Import format definitions from separate files
+import { tiktokFormat } from "./excel-formats/tiktok";
+import { shopeeFormat } from "./excel-formats/shopee";
+
+// Register built-in formats
+registerExcelFormat(tiktokFormat);
+registerExcelFormat(shopeeFormat);
+
+// Export format-specific constants for backward compatibility
+// Note: The actual exported constants are defined later in the file (around line 839+)
+// We reference the internal versions here for the format definitions
+
+// Backward compatibility exports will be defined after the constants are exported
 
 export function buildDataRanges(
   startRow: number,
   lastRow: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ): DataRangeStrings {
-  const seg = (c: string) => `\$${c}\$${startRow}:\$${c}\$${lastRow}`;
-
-  if (format === ExcelFormat.SHOPEE_DAILY) {
-    return {
-      startDateR: `'clean data'!${seg("AE")}`, // Date from Data Period
-      startTimeR: `'clean data'!${seg("AF")}`, // Time (placeholder)
-      endTimeR: `'clean data'!${seg("AG")}`, // End time (placeholder)
-      weekInYearR: `'clean data'!${seg("AH")}`, // Week number
-      montIndex: `'clean data'!${seg("AI")}`, // Month
-      grossR: `'clean data'!${seg("C")}`, // Sales(Placed Order)
-      directR: `'clean data'!${seg("D")}`, // Sales(Confirmed Order)
-      itemsR: `'clean data'!${seg("G")}`, // Total Items Sold(Placed Order)
-      avgViewR: `'clean data'!${seg("K")}`, // Avg. Viewing Duration
-      likesR: `'clean data'!${seg("X")}`, // Total Likes
-      commentsR: `'clean data'!${seg("Z")}`, // Total Comments
-      sharesR: `'clean data'!${seg("Y")}`, // Total Shares
-      ctrR: `'clean data'!${seg("O")}`, // CTR
-      ctorR: `'clean data'!${seg("P")}`, // Click to Order Rate(Placed Order)
-    };
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return defaultFormat.buildDataRanges(startRow, lastRow);
   }
-
-  // TikTok format (default)
-  return {
-    startDateR: `'clean data'!${seg("X")}`,
-    startTimeR: `'clean data'!${seg("Y")}`,
-    endTimeR: `'clean data'!${seg("Z")}`,
-    weekInYearR: `'clean data'!${seg("AA")}`,
-    montIndex: `'clean data'!${seg("AB")}`,
-    grossR: `'clean data'!${seg("D")}`,
-    directR: `'clean data'!${seg("E")}`,
-    itemsR: `'clean data'!${seg("F")}`,
-    avgViewR: `'clean data'!${seg("P")}`,
-    likesR: `'clean data'!${seg("Q")}`,
-    commentsR: `'clean data'!${seg("R")}`,
-    sharesR: `'clean data'!${seg("S")}`,
-    ctrR: `'clean data'!${seg("V")}`,
-    ctorR: `'clean data'!${seg("W")}`,
-  };
+  return formatDef.buildDataRanges(startRow, lastRow);
 }
 
 export function detectExcelFormat(worksheet: Worksheet): ExcelFormat {
-  // Check first 10 rows for format indicators
-  for (let row = 1; row <= 10; row++) {
-    const cellA = worksheet.getCell(`A${row}`);
-    const cellB = worksheet.getCell(`B${row}`);
-    const cellC = worksheet.getCell(`C${row}`);
-
-    const valueA = cellA.value?.toString().toLowerCase() || "";
-    const valueB = cellB.value?.toString().toLowerCase() || "";
-    const valueC = cellC.value?.toString().toLowerCase() || "";
-
-    // Check for TikTok Livestream format
-    if (
-      (valueA.includes("livestream") ||
-        valueA.includes("streaming langsung")) &&
-      (valueB.includes("start time") || valueB.includes("waktu mulai")) &&
-      (valueC.includes("duration") || valueC.includes("durasi"))
-    ) {
-      return ExcelFormat.TIKTOK_LIVESTREAM;
-    }
-
-    // Check for Shopee Daily format (English and Bahasa)
-    if (
-      (valueA.includes("data period") || valueA.includes("periode data")) &&
-      valueB.includes("user id") &&
-      (valueC.includes("sales") ||
-        valueC.includes("placed order") ||
-        valueC.includes("penjualan") ||
-        valueC.includes("no."))
-    ) {
-      return ExcelFormat.SHOPEE_DAILY;
-    }
-  }
-
-  return ExcelFormat.UNSUPPORTED;
+  const result = detectFormat(worksheet);
+  return result.formatId;
 }
 
 export function detectDataStartRow(
   worksheet: Worksheet,
   format?: ExcelFormat,
 ): number {
-  const detectedFormat = format || detectExcelFormat(worksheet);
-
-  for (let row = 1; row <= 10; row++) {
-    const cellA = worksheet.getCell(`A${row}`);
-    const cellB = worksheet.getCell(`B${row}`);
-    const cellC = worksheet.getCell(`C${row}`);
-
-    const valueA = cellA.value?.toString().toLowerCase() || "";
-    const valueB = cellB.value?.toString().toLowerCase() || "";
-    const valueC = cellC.value?.toString().toLowerCase() || "";
-
-    if (detectedFormat === ExcelFormat.TIKTOK_LIVESTREAM) {
-      // Check for TikTok headers
-      if (
-        (valueA.includes("livestream") ||
-          valueA.includes("streaming langsung")) &&
-        (valueB.includes("start time") || valueB.includes("waktu mulai")) &&
-        (valueC.includes("duration") || valueC.includes("durasi"))
-      ) {
-        return row + 1; // Data starts in the next row
-      }
-    } else if (detectedFormat === ExcelFormat.SHOPEE_DAILY) {
-      // Check for Shopee headers (English and Bahasa)
-      if (
-        (valueA.includes("data period") || valueA.includes("periode data")) &&
-        valueB.includes("user id") &&
-        (valueC.includes("sales") ||
-          valueC.includes("placed order") ||
-          valueC.includes("penjualan") ||
-          valueC.includes("no."))
-      ) {
-        return row + 1; // Data starts in the next row
+  if (format) {
+    // If format is provided, use its detection to find start row
+    const formatDef = getFormatDefinition(format);
+    if (formatDef) {
+      const startRow = formatDef.detect(worksheet);
+      if (startRow !== null && startRow !== undefined) {
+        return startRow;
       }
     }
+    // If format provided but detection fails, default to row 2
+    return 2;
   }
-
-  return 2; // Default to row 2 if headers not found
+  
+  // If no format provided, use full detection
+  const result = detectFormat(worksheet);
+  return result.startRow;
 }
 
 export function detectDataLength(
@@ -198,66 +299,27 @@ export function detectDataLength(
   };
 }
 
-// TikTok Livestream format headers
-export const tiktokHeaders = [
-  "Livestream",
-  "Start time",
-  "Duration",
-  "Gross revenue",
-  "Direct GMV",
-  "Items sold",
-  "Customers",
-  "Avg, price",
-  "Orders paid for",
-  "GMV/1K shows",
-  "GMV/1K views",
-  "Views",
-  "Viewers",
-  "Peak viewers",
-  "New followers",
-  "Avg, view duration",
-  "Likes",
-  "Comments",
-  "Shares",
-  "Product impressions",
-  "Product clicks",
-  "CTR",
-  "CTOR",
-];
+// Import format constants for re-export
+import {
+  tiktokHeaders,
+  tiktokColumnCleaningRules,
+  tiktokNewRawDataHeaders,
+} from "./excel-formats/tiktok";
+import {
+  shopeeHeaders,
+  shopeeColumnCleaningRules,
+  shopeeNewRawDataHeaders,
+} from "./excel-formats/shopee";
 
-// Shopee Daily format headers
-export const shopeeHeaders = [
-  "Data Period",
-  "User Id",
-  "Sales(Placed Order)",
-  "Sales(Confirmed Order)",
-  "Orders(Placed Order)",
-  "Orders(Confirmed Order)",
-  "Total Items Sold(Placed Order)",
-  "Total Items Sold(Confirmed Order)",
-  "Total Viewers",
-  "Engaged Viewers",
-  "Avg. Viewing Duration",
-  "Buyers(Placed Order)",
-  "Buyers(Confirmed Order)",
-  "Total ATC",
-  "CTR",
-  "Click to Order Rate(Placed Order)",
-  "Click to Order Rate(Confirmed Order)",
-  "ABS(Placed Order)",
-  "ABS(Confirmed Order)",
-  "GPM(Placed Order)",
-  "GPM(Confirmed Order)",
-  "Total Views",
-  "PCU",
-  "Total Likes",
-  "Total Shares",
-  "Total Comments",
-  "Live New Followers",
-  "Shop Voucher Claimed",
-  "Special Live Voucher Claimed",
-  "Coins Claimed",
-];
+// Re-export format constants for backward compatibility
+export {
+  tiktokHeaders,
+  tiktokColumnCleaningRules,
+  tiktokNewRawDataHeaders,
+  shopeeHeaders,
+  shopeeColumnCleaningRules,
+  shopeeNewRawDataHeaders,
+};
 
 // Backward compatibility
 export const inputHeaders = tiktokHeaders;
@@ -284,16 +346,25 @@ export function cleanPercentageValue(value: unknown): number {
   if (!value) return 0;
 
   const str = value.toString();
-  const cleaned = str.replace(/%/g, "").replace(/,/g, ".").trim();
+  // Remove percentage sign, spaces, and normalize decimal separators
+  const cleaned = str
+    .replace(/%/g, "")
+    .replace(/,/g, ".")
+    .replace(/\s+/g, "")
+    .trim();
   const number = parseFloat(cleaned);
 
   if (isNaN(number)) return 0;
 
   // If value was originally a percentage string, convert to decimal
+  // Check if original string had % sign (before cleaning)
   if (str.includes("%")) {
     return number / 100;
   }
 
+  // If the number is > 1 and looks like it might be a percentage (e.g., "15" meaning 15%)
+  // but we can't be sure, so we'll assume it's already a decimal if no % sign
+  // This handles cases where percentages are stored as decimals (0.15) vs strings ("15%")
   return number;
 }
 
@@ -312,98 +383,44 @@ export function cleanTextValue(value: unknown): string {
   return value.toString().trim();
 }
 
-// TikTok column cleaning rules (0-based index)
-export const tiktokColumnCleaningRules = {
-  // Currency columns
-  3: "currency", // Gross revenue
-  4: "currency", // Direct GMV
-  7: "currency", // Avg. price
-  9: "currency", // GMV/1K shows
-  10: "currency", // GMV/1K views
+/**
+ * Convert duration from time format (e.g., "4:02:02") to decimal hours (e.g., 4.03)
+ * @param value The duration value (can be string like "4:02:02" or number)
+ * @returns Decimal hours as a number
+ */
+export function cleanDurationValue(value: unknown): number {
+  if (typeof value === "number") {
+    // If already a number, assume it's already in decimal hours format
+    return value;
+  }
+  if (!value) return 0;
 
-  // Numeric columns
-  2: "numeric", // Duration
-  5: "numeric", // Items sold
-  6: "numeric", // Customers
-  8: "numeric", // Orders paid for
-  11: "numeric", // Views
-  12: "numeric", // Viewers
-  13: "numeric", // Peak viewers
-  14: "numeric", // New followers
-  15: "numeric", // Avg. view duration
-  16: "numeric", // Likes
-  17: "numeric", // Comments
-  18: "numeric", // Shares
-  19: "numeric", // Product impressions
-  20: "numeric", // Product clicks
+  const str = value.toString().trim();
+  if (!str) return 0;
 
-  // Percentage columns
-  21: "percentage", // CTR
-  22: "percentage", // CTOR
-} as const;
+  // Handle time format like "4:02:02" (hours:minutes:seconds)
+  const timePattern = /^(\d+):(\d+):(\d+)$/;
+  const match = str.match(timePattern);
+  
+  if (match) {
+    const hours = parseInt(match[1], 10) || 0;
+    const minutes = parseInt(match[2], 10) || 0;
+    const seconds = parseInt(match[3], 10) || 0;
+    
+    // Convert to decimal hours: hours + (minutes/60) + (seconds/3600)
+    const decimalHours = hours + (minutes / 60) + (seconds / 3600);
+    // Round to 2 decimal places
+    return Math.round(decimalHours * 100) / 100;
+  }
 
-// Shopee column cleaning rules (0-based index)
-export const shopeeColumnCleaningRules = {
-  // Currency columns
-  2: "currency", // Sales(Placed Order)
-  3: "currency", // Sales(Confirmed Order)
-  17: "currency", // ABS(Placed Order)
-  18: "currency", // ABS(Confirmed Order)
-  19: "currency", // GPM(Placed Order)
-  20: "currency", // GPM(Confirmed Order)
-
-  // Numeric columns
-  4: "numeric", // Orders(Placed Order)
-  5: "numeric", // Orders(Confirmed Order)
-  6: "numeric", // Total Items Sold(Placed Order)
-  7: "numeric", // Total Items Sold(Confirmed Order)
-  8: "numeric", // Total Viewers
-  9: "numeric", // Engaged Viewers
-  10: "numeric", // Avg. Viewing Duration
-  11: "numeric", // Buyers(Placed Order)
-  12: "numeric", // Buyers(Confirmed Order)
-  13: "numeric", // Total ATC
-  21: "numeric", // Total Views
-  22: "numeric", // PCU
-  23: "numeric", // Total Likes
-  24: "numeric", // Total Shares
-  25: "numeric", // Total Comments
-  26: "numeric", // Live New Followers
-  29: "numeric", // Coins Claimed
-
-  // Percentage columns
-  14: "percentage", // CTR
-  15: "percentage", // Click to Order Rate(Placed Order)
-  16: "percentage", // Click to Order Rate(Confirmed Order)
-
-  // Text columns
-  1: "text", // User Id
-  27: "text", // Shop Voucher Claimed
-  28: "text", // Special Live Voucher Claimed
-} as const;
+  // If not in time format, try to parse as number
+  const cleaned = str.replace(/[,\s]/g, "").trim();
+  const number = parseFloat(cleaned);
+  return isNaN(number) ? 0 : number;
+}
 
 // Backward compatibility
 export const columnCleaningRules = tiktokColumnCleaningRules;
-
-// TikTok new headers to append to raw data (columns X, Y, Z, AA, AB)
-export const tiktokNewRawDataHeaders = [
-  "Start Date",
-  "Start Time",
-  "End Time",
-  "Week in Year",
-  "Month",
-];
-
-// Shopee new headers to append to raw data (columns AE, AF, AG, AH, AI)
-export const shopeeNewRawDataHeaders = [
-  "Date",
-  "Time", // Placeholder
-  "End Time", // Placeholder
-  "Week in Year",
-  "Month",
-];
-
-// Backward compatibility
 export const newRawDataHeaders = tiktokNewRawDataHeaders;
 
 export const helperHeaders = [
@@ -428,33 +445,18 @@ export const metricsHeaders = [
   "Date",
   "Week",
   "Jumlah Sesi",
-  "Max Revenue",
-  "Min Revenue",
   "Avg Revenue",
   "Sum",
-  "Prime time based on Max Revenue",
-  "Max Item Sold (pcs)",
-  "Min Item Sold (pcs)",
-  "Avg Item Sold (pcs)",
-  "Avg Duration (Seconds)",
-  "Prime time based on Max by CTR",
-  "Max CTR",
-  "Min CTR",
+  "Median CTR",
   "AVG CTR",
-  "Prime time based on Max by CTOR",
-  "Max CTOR",
-  "Min CT0R",
+  "Median CTOR",
   "AVG CTOR",
   "Avg, view duration",
-  "Max Likes",
-  "Min Likes",
-  "AVG Likes",
-  "Max Comment",
-  "Min Comment",
-  "AVG Comment",
-  "Max Share",
-  "Min Share",
-  "AVG Share",
+  "Sum Share",
+  "Sum Comment",
+  "Sum Likes",
+  "sum Viewers",
+  "Median GMV/1K shows",
 ];
 
 export const summaryHeaders = ["Metric", "Value"];
@@ -485,24 +487,16 @@ export function generateRawDataFormulas(
   row: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ) {
-  if (format === ExcelFormat.SHOPEE_DAILY) {
-    return {
-      AE: `TEXT(DATEVALUE(A${row}),"yyyy-mm-dd")`, // Date from Data Period
-      AF: `""`, // Time placeholder
-      AG: `""`, // End Time placeholder
-      AH: `WEEKNUM(AE${row},2)`, // Week in Year
-      AI: `MONTH(AE${row})`, // Month
-    };
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return defaultFormat.generateRawDataFormulas(row);
   }
-
-  // TikTok format (default)
-  return {
-    X: `TEXT(B${row},"yyyy-mm-dd")`, // Start Date
-    Y: `TEXT(B${row},"hh:mm")`, // Start Time
-    Z: `TEXT(B${row}+(C${row}/86400),"hh:mm")`, // End Time
-    AA: `WEEKNUM(X${row},2)`, // Week in Year
-    AB: `MONTH(X${row})`, // Month
-  };
+  return formatDef.generateRawDataFormulas(row);
 }
 
 export function generateMetricsFormulas(
@@ -511,78 +505,16 @@ export function generateMetricsFormulas(
   lastRow: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ) {
-  const dataRanges = buildDataRanges(startRow, lastRow, format);
-
-  if (format === ExcelFormat.SHOPEE_DAILY) {
-    return {
-      A: `TEXT(B${row},"dddd")`, // Day
-      B: `IFERROR(SORT(UNIQUE(FILTER(${dataRanges.startDateR},${dataRanges.startDateR}<>""))),"")`, // Date
-      C: `XLOOKUP(B${row},${dataRanges.startDateR},${dataRanges.weekInYearR})`, // Week
-      D: `COUNTIF(${dataRanges.startDateR},B${row})`, // Sessions
-      E: `MAXIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Max Sales(Placed)
-      F: `MINIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Min Sales(Placed)
-      G: `ROUND(AVERAGEIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row}),0)`, // Avg Sales(Placed)
-      H: `SUMIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Sum Sales(Placed)
-      I: `""`, // Prime time placeholder
-      J: `MAXIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row})`, // Max Items Sold
-      K: `MINIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row})`, // Min Items Sold
-      L: `ROUND(AVERAGEIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row}),0)`, // Avg Items Sold
-      M: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.startDateR},B${row}),0)`, // Avg View Duration
-      N: `""`, // Prime time by CTR placeholder
-      O: `MAXIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row})`, // Max CTR
-      P: `MINIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row})`, // Min CTR
-      Q: `ROUND(AVERAGEIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row}),4)`, // AVG CTR
-      R: `""`, // Prime time by CTOR placeholder
-      S: `MAXIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row})`, // Max CTOR
-      T: `MINIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row})`, // Min CTOR
-      U: `ROUND(AVERAGEIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row}),4)`, // AVG CTOR
-      V: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.startDateR},B${row}),0)`, // Avg view duration
-      W: `MAXIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row})`, // Max Likes
-      X: `MINIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row})`, // Min Likes
-      Y: `ROUND(AVERAGEIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row}),0)`, // AVG Likes
-      Z: `MAXIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row})`, // Max Comment
-      AA: `MINIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row})`, // Min Comment
-      AB: `ROUND(AVERAGEIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row}),0)`, // AVG Comment
-      AC: `MAXIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row})`, // Max Share
-      AD: `MINIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row})`, // Min Share
-      AE: `ROUND(AVERAGEIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row}),0)`, // AVG Share
-    };
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return defaultFormat.generateMetricsFormulas(row, startRow, lastRow);
   }
-
-  // TikTok format (default)
-  return {
-    A: `TEXT(B${row},"dddd")`, // Day
-    B: `IFERROR(SORT(UNIQUE(FILTER(${dataRanges.startDateR},${dataRanges.startDateR}<>""))),"")`, // Date (only for B2)
-    C: `XLOOKUP(B${row},${dataRanges.startDateR},${dataRanges.weekInYearR})`, // Week
-    D: `COUNTIF(${dataRanges.startDateR},B${row})`, // Jumlah Sesi
-    E: `MAXIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Max Revenue
-    F: `MINIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Min Revenue
-    G: `ROUND(AVERAGEIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row}),0)`, // Avg Revenue
-    H: `SUMIFS(${dataRanges.grossR},${dataRanges.startDateR},B${row})`, // Sum
-    I: `TEXTJOIN(", ",TRUE, FILTER(${dataRanges.startTimeR}, (${dataRanges.startDateR}=B${row})*(${dataRanges.grossR}=E${row})))`, // Prime time by Max Revenue
-    J: `MAXIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row})`, // Max Item Sold
-    K: `MINIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row})`, // Min Item Sold
-    L: `ROUND(AVERAGEIFS(${dataRanges.itemsR},${dataRanges.startDateR},B${row}),0)`, // Avg Item Sold
-    M: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.startDateR},B${row}),0)`, // Avg Duration
-    N: `TEXTJOIN(", ",TRUE, FILTER(${dataRanges.startTimeR}, (${dataRanges.startDateR}=B${row})*(${dataRanges.ctrR}=O${row})))`, // Prime time by Max CTR
-    O: `MAXIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row})`, // Max CTR
-    P: `MINIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row})`, // Min CTR
-    Q: `ROUND(AVERAGEIFS(${dataRanges.ctrR},${dataRanges.startDateR},B${row}),4)`, // AVG CTR
-    R: `TEXTJOIN(", ",TRUE, FILTER(${dataRanges.startTimeR}, (${dataRanges.startDateR}=B${row})*(${dataRanges.ctorR}=S${row})))`, // Prime time by Max CTOR
-    S: `MAXIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row})`, // Max CTOR
-    T: `MINIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row})`, // Min CTOR
-    U: `ROUND(AVERAGEIFS(${dataRanges.ctorR},${dataRanges.startDateR},B${row}),4)`, // AVG CTOR
-    V: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.startDateR},B${row}),0)`, // Avg view duration
-    W: `MAXIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row})`, // Max Likes
-    X: `MINIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row})`, // Min Likes
-    Y: `ROUND(AVERAGEIFS(${dataRanges.likesR},${dataRanges.startDateR},B${row}),0)`, // AVG Likes
-    Z: `MAXIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row})`, // Max Comment
-    AA: `MINIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row})`, // Min Comment
-    AB: `ROUND(AVERAGEIFS(${dataRanges.commentsR},${dataRanges.startDateR},B${row}),0)`, // AVG Comment
-    AC: `MAXIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row})`, // Max Share
-    AD: `MINIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row})`, // Min Share
-    AE: `ROUND(AVERAGEIFS(${dataRanges.sharesR},${dataRanges.startDateR},B${row}),0)`, // AVG Share
-  };
+  return formatDef.generateMetricsFormulas(row, startRow, lastRow);
 }
 
 export function cleanAndCopyData(
@@ -592,12 +524,18 @@ export function cleanAndCopyData(
   lastRow: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ): void {
-  const headers =
-    format === ExcelFormat.SHOPEE_DAILY ? shopeeHeaders : tiktokHeaders;
-  const cleaningRules =
-    format === ExcelFormat.SHOPEE_DAILY
-      ? shopeeColumnCleaningRules
-      : tiktokColumnCleaningRules;
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return cleanAndCopyData(inputWorksheet, cleanDataSheet, startRow, lastRow, ExcelFormat.TIKTOK_LIVESTREAM);
+  }
+
+  const headers = formatDef.headers;
+  const cleaningRules = formatDef.columnCleaningRules;
 
   // Copy headers first (row 1)
   headers.forEach((header, colIndex) => {
@@ -612,8 +550,7 @@ export function cleanAndCopyData(
       const cleanCell = cleanDataSheet.getCell(cleanRow, colIndex + 1);
 
       const rawValue = rawCell.value;
-      const cleaningRule =
-        cleaningRules[colIndex as keyof typeof cleaningRules];
+      const cleaningRule = cleaningRules[colIndex];
 
       let cleanedValue: string | number;
       switch (cleaningRule) {
@@ -625,6 +562,9 @@ export function cleanAndCopyData(
           break;
         case "numeric":
           cleanedValue = cleanNumericValue(rawValue);
+          break;
+        case "duration":
+          cleanedValue = cleanDurationValue(rawValue);
           break;
         default:
           cleanedValue = cleanTextValue(rawValue);
@@ -658,32 +598,16 @@ export function generateSummaryFormulas(
   lastRow: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ): Record<string, string> {
-  const dataRanges = buildDataRanges(startRow, lastRow, format);
-
-  if (format === ExcelFormat.SHOPEE_DAILY) {
-    return {
-      "Avg Sales/Session": `ROUND(AVERAGE(${dataRanges.grossR}),0)`,
-      "Avg Sales/Day": `ROUND(AVERAGE(metrics!H:H),0)`,
-      "Avg CTR": `ROUND(AVERAGE(${dataRanges.ctrR}),4)`,
-      "Avg CTOR": `ROUND(AVERAGE(${dataRanges.ctorR}),4)`,
-      "Avg Viewers": `ROUND(AVERAGE('clean data'!$I$${startRow}:$I$${lastRow}),0)`, // Total Viewers column
-      "Avg Like": `ROUND(AVERAGE(${dataRanges.likesR}),0)`,
-      "Avg Comment": `ROUND(AVERAGE(${dataRanges.commentsR}),0)`,
-      "Avg Share": `ROUND(AVERAGE(${dataRanges.sharesR}),0)`,
-    };
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return defaultFormat.generateSummaryFormulas(startRow, lastRow);
   }
-
-  // TikTok format (default)
-  return {
-    "Avg GMV/Sesi": `ROUND(AVERAGE(${dataRanges.directR}),0)`,
-    "Avg GMV/Day": `ROUND(AVERAGE(metrics!H:H),0)`, // Average of Sum column from metrics
-    "Avg CTR": `ROUND(AVERAGE(${dataRanges.ctrR}),4)`,
-    "Avg CTOR": `ROUND(AVERAGE(${dataRanges.ctorR}),4)`,
-    "Avg Viewers": `ROUND(AVERAGE('clean data'!$M$${startRow}:$M$${lastRow}),0)`, // Viewers column
-    "Avg Like": `ROUND(AVERAGE(${dataRanges.likesR}),0)`,
-    "Avg Comment": `ROUND(AVERAGE(${dataRanges.commentsR}),0)`,
-    "Avg Share": `ROUND(AVERAGE(${dataRanges.sharesR}),0)`,
-  };
+  return formatDef.generateSummaryFormulas(startRow, lastRow);
 }
 
 export function generateTrendFormulas(
@@ -692,28 +616,16 @@ export function generateTrendFormulas(
   lastRow: number,
   format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ) {
-  const dataRanges = buildDataRanges(startRow, lastRow, format);
-
-  if (format === ExcelFormat.SHOPEE_DAILY) {
-    return {
-      C: `ROUND(AVERAGEIFS(${dataRanges.ctrR},${dataRanges.montIndex},A${row}),4)`, // Avg CTR
-      D: `ROUND(AVERAGEIFS(${dataRanges.ctorR},${dataRanges.montIndex},A${row}),4)`, // Avg CTOR
-      E: `ROUND(AVERAGEIFS('clean data'!$I$${startRow}:$I$${lastRow},${dataRanges.montIndex},A${row}),0)`, // Avg Viewers
-      F: `ROUND(AVERAGEIFS(${dataRanges.likesR},${dataRanges.montIndex},A${row}),0)`, // Avg Like
-      G: `ROUND(AVERAGEIFS(${dataRanges.commentsR},${dataRanges.montIndex},A${row}),0)`, // Avg Comment
-      H: `ROUND(AVERAGEIFS(${dataRanges.sharesR},${dataRanges.montIndex},A${row}),0)`, // Avg Share
-    };
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to TikTok format if format not found
+    const defaultFormat = getFormatDefinition(ExcelFormat.TIKTOK_LIVESTREAM);
+    if (!defaultFormat) {
+      throw new Error(`Format ${format} not found and no default format available`);
+    }
+    return defaultFormat.generateTrendFormulas(row, startRow, lastRow);
   }
-
-  // TikTok format (default)
-  return {
-    C: `ROUND(AVERAGEIFS(${dataRanges.ctrR},${dataRanges.montIndex},A${row}),4)`, // Avg CTR
-    D: `ROUND(AVERAGEIFS(${dataRanges.ctorR},${dataRanges.montIndex},A${row}),4)`, // Avg CTOR
-    E: `ROUND(AVERAGEIFS(${dataRanges.avgViewR},${dataRanges.montIndex},A${row}),0)`, // Avg Viewers
-    F: `ROUND(AVERAGEIFS(${dataRanges.likesR},${dataRanges.montIndex},A${row}),0)`, // Avg Like
-    G: `ROUND(AVERAGEIFS(${dataRanges.commentsR},${dataRanges.montIndex},A${row}),0)`, // Avg Comment
-    H: `ROUND(AVERAGEIFS(${dataRanges.sharesR},${dataRanges.montIndex},A${row}),0)`, // Avg Share
-  };
+  return formatDef.generateTrendFormulas(row, startRow, lastRow);
 }
 
 export function applyCTRCTORFormatting(
@@ -737,26 +649,123 @@ export function applyCTRCTORFormatting(
   }
 }
 
+/**
+ * Apply percentage formatting to all percentage columns based on format definition.
+ * This function reads the columnCleaningRules from the format definition and applies
+ * percentage formatting to all columns marked as "percentage".
+ * 
+ * @param worksheet The worksheet to format
+ * @param startRow The first data row (1-based)
+ * @param lastRow The last data row (1-based)
+ * @param format The Excel format to use for determining percentage columns
+ */
+export function applyPercentageFormatting(
+  worksheet: Worksheet,
+  startRow: number,
+  lastRow: number,
+  format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
+): void {
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    // Fallback to hardcoded columns if format not found
+    applyCTRCTORFormatting(worksheet, startRow, lastRow);
+    return;
+  }
+
+  // Find all percentage columns from the format definition
+  const percentageColumns: number[] = [];
+  Object.entries(formatDef.columnCleaningRules).forEach(([colIndexStr, rule]) => {
+    if (rule === "percentage") {
+      // Convert 0-based index to 1-based Excel column index
+      const colIndex = parseInt(colIndexStr, 10);
+      percentageColumns.push(colIndex + 1);
+    }
+  });
+
+  // Apply percentage formatting to all percentage columns
+  for (let row = startRow; row <= lastRow; row++) {
+    percentageColumns.forEach((colIndex) => {
+      const cell = worksheet.getCell(row, colIndex);
+      cell.numFmt = "0.00%";
+    });
+  }
+}
+
 export function applyCurrencyFormatting(
   worksheet: Worksheet,
   startRow: number,
   lastRow: number,
   currency: string = "IDR",
+  format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
 ): void {
-  // Currency columns based on columnCleaningRules:
-  // 3: Gross revenue (column D)
-  // 4: Direct GMV (column E)
-  // 7: Avg. price (column H)
-  // 9: GMV/1K shows (column J)
-  // 10: GMV/1K views (column K)
-  const currencyColumns = [4, 5, 8, 10, 11]; // 1-based column indices
-
+  const formatDef = getFormatDefinition(format);
   const currencyFormat = getAdvancedCurrencyFormat(currency);
+
+  let currencyColumns: number[] = [];
+
+  if (formatDef) {
+    // Find all currency columns from the format definition
+    Object.entries(formatDef.columnCleaningRules).forEach(([colIndexStr, rule]) => {
+      if (rule === "currency") {
+        // Convert 0-based index to 1-based Excel column index
+        const colIndex = parseInt(colIndexStr, 10);
+        currencyColumns.push(colIndex + 1);
+      }
+    });
+  } else {
+    // Fallback to hardcoded columns for TikTok format if format not found
+    // Currency columns based on TikTok format:
+    // 3: Gross revenue (column D)
+    // 4: Direct GMV (column E)
+    // 7: Avg. price (column H)
+    // 9: GMV/1K shows (column J)
+    // 10: GMV/1K views (column K)
+    currencyColumns = [4, 5, 8, 10, 11]; // 1-based column indices
+  }
 
   for (let row = startRow; row <= lastRow; row++) {
     currencyColumns.forEach((colIndex) => {
       const cell = worksheet.getCell(row, colIndex);
       cell.numFmt = currencyFormat;
+    });
+  }
+}
+
+/**
+ * Apply duration formatting to all duration columns based on format definition.
+ * Duration columns are formatted as numbers with 2 decimal places (e.g., 4.03).
+ * 
+ * @param worksheet The worksheet to format
+ * @param startRow The first data row (1-based)
+ * @param lastRow The last data row (1-based)
+ * @param format The Excel format to use for determining duration columns
+ */
+export function applyDurationFormatting(
+  worksheet: Worksheet,
+  startRow: number,
+  lastRow: number,
+  format: ExcelFormat = ExcelFormat.TIKTOK_LIVESTREAM,
+): void {
+  const formatDef = getFormatDefinition(format);
+  if (!formatDef) {
+    return;
+  }
+
+  // Find all duration columns from the format definition
+  const durationColumns: number[] = [];
+  Object.entries(formatDef.columnCleaningRules).forEach(([colIndexStr, rule]) => {
+    if (rule === "duration") {
+      // Convert 0-based index to 1-based Excel column index
+      const colIndex = parseInt(colIndexStr, 10);
+      durationColumns.push(colIndex + 1);
+    }
+  });
+
+  // Apply number format with 2 decimal places to duration columns
+  for (let row = startRow; row <= lastRow; row++) {
+    durationColumns.forEach((colIndex) => {
+      const cell = worksheet.getCell(row, colIndex);
+      cell.numFmt = "0.00"; // Format as number with 2 decimal places
     });
   }
 }
@@ -772,20 +781,20 @@ export function applyMetricsFormatting(
   const currencyFormat = getAdvancedCurrencyFormat(currency);
 
   for (let row = startRow; row <= lastRow; row++) {
-    // Revenue columns (E, F, G, H - Max Revenue, Min Revenue, Avg Revenue, Sum)
-    ["E", "F", "G", "H"].forEach((col) => {
+    // Revenue columns (E, F - Avg Revenue, Sum)
+    ["E", "F"].forEach((col) => {
       const cell = worksheet.getCell(`${col}${row}`);
       cell.numFmt = currencyFormat;
     });
 
-    // CTR columns (O, P, Q - Max CTR, Min CTR, AVG CTR)
-    ["O", "P", "Q"].forEach((col) => {
+    // CTR columns (G, H - Median CTR, AVG CTR)
+    ["G", "H"].forEach((col) => {
       const cell = worksheet.getCell(`${col}${row}`);
       cell.numFmt = "0.00%";
     });
 
-    // CTOR columns (S, T, U - Max CTOR, Min CTOR, AVG CTOR)
-    ["S", "T", "U"].forEach((col) => {
+    // CTOR columns (I, J - Median CTOR, AVG CTOR)
+    ["I", "J"].forEach((col) => {
       const cell = worksheet.getCell(`${col}${row}`);
       cell.numFmt = "0.00%";
     });

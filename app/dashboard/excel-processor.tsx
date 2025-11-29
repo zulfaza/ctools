@@ -27,8 +27,12 @@ export function ExcelProcessor() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): string | null => {
-    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
-      return "Please select an Excel file (.xlsx or .xls)";
+    if (
+      !file.name.endsWith(".xlsx") &&
+      !file.name.endsWith(".xls") &&
+      !file.name.endsWith(".csv")
+    ) {
+      return "Please select an Excel file (.xlsx, .xls) or CSV file (.csv)";
     }
     if (file.size > 50 * 1024 * 1024) {
       // 50MB limit
@@ -139,13 +143,8 @@ export function ExcelProcessor() {
       const a = document.createElement("a");
       a.style.display = "none";
       a.href = url;
-
-      if (files.length === 1) {
-        a.download = `processed_${files[0].file.name}`;
-      } else {
-        a.download = "processed_excel_files.zip";
-      }
-
+      const fileNameArr = files[0].file.name.split('.');
+      a.download = files.length === 1 ?  `processed_${fileNameArr.slice(0,fileNameArr.length - 1).join('.')}.xlsx` : "processed_excel_files.zip";
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -171,11 +170,11 @@ export function ExcelProcessor() {
             <FileSpreadsheet className="h-6 w-6 text-primary" />
             <div>
               <h2 className="text-2xl font-semibold">
-                Excel Metrics Processor
+                Excel & CSV Metrics Processor
               </h2>
               <p className="text-muted-foreground">
-                Upload single or multiple Excel files to generate comprehensive
-                metrics and analysis
+                Upload single or multiple Excel (.xlsx, .xls) or CSV (.csv)
+                files to generate comprehensive metrics and analysis
               </p>
             </div>
           </div>
@@ -197,7 +196,7 @@ export function ExcelProcessor() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".xlsx,.xls,.csv"
                   multiple
                   onChange={handleFileSelect}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
@@ -318,10 +317,10 @@ export function ExcelProcessor() {
                 1
               </div>
               <div>
-                <strong>Upload your Excel file(s)</strong> containing livestream
-                data with the expected headers: Livestream, Start time,
-                Duration, Gross revenue, Direct GMV, Items sold, etc. You can
-                select multiple files at once.
+                <strong>Upload your Excel or CSV file(s)</strong> containing
+                livestream data with the expected headers: Livestream, Start
+                time, Duration, Gross revenue, Direct GMV, Items sold, etc. You
+                can select multiple files at once.
               </div>
             </div>
             <div className="flex items-start gap-3">

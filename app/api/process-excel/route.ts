@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
+import Papa from "papaparse";
 import {
   ExcelFormat,
   detectExcelFormat,
@@ -12,10 +13,12 @@ import {
   generateMetricsFormulas,
   buildDataRanges,
   cleanAndCopyData,
-  applyCTRCTORFormatting,
+  applyPercentageFormatting,
   applyCurrencyFormatting,
+  applyDurationFormatting,
   applyMetricsFormatting,
   detectCurrencyFromData,
+  getAdvancedCurrencyFormat,
   summaryHeaders,
   summaryMetrics,
   generateSummaryFormulas,
@@ -41,13 +44,55 @@ const MONTH_MAP_STRING = [
   "Dec",
 ];
 
+async function convertCsvToExcelWorkbook(
+  csvBuffer: ArrayBuffer,
+): Promise<ExcelJS.Workbook> {
+  const csvText = new TextDecoder().decode(csvBuffer);
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet("Sheet1");
+
+  return new Promise((resolve, reject) => {
+    Papa.parse(csvText, {
+      header: false,
+      skipEmptyLines: true,
+      complete: (results) => {
+        try {
+          // Add data to worksheet
+          results.data.forEach((row: unknown, rowIndex: number) => {
+            const worksheetRow = worksheet.getRow(rowIndex + 1);
+            (row as string[]).forEach((cellValue: string, colIndex: number) => {
+              worksheetRow.getCell(colIndex + 1).value = cellValue;
+            });
+            worksheetRow.commit();
+          });
+          resolve(workbook);
+        } catch (error) {
+          reject(error);
+        }
+      },
+      error: (error: Error) => {
+        reject(error);
+      },
+    });
+  });
+}
+
 async function processExcelFile(
   file: File,
 ): Promise<{ buffer: ArrayBuffer; filename: string }> {
-  // Read the uploaded Excel file
+  // Read the uploaded file
   const buffer = await file.arrayBuffer();
-  const inputWorkbook = new ExcelJS.Workbook();
-  await inputWorkbook.xlsx.load(buffer);
+  let inputWorkbook: ExcelJS.Workbook;
+
+  // Check if it's a CSV file
+  if (file.name.toLowerCase().endsWith(".csv")) {
+    // Convert CSV to Excel workbook
+    inputWorkbook = await convertCsvToExcelWorkbook(buffer);
+  } else {
+    // Load Excel file
+    inputWorkbook = new ExcelJS.Workbook();
+    await inputWorkbook.xlsx.load(buffer);
+  }
 
   // Get the first worksheet (assuming it contains the data)
   const inputWorksheet = inputWorkbook.getWorksheet(1);
@@ -106,13 +151,13 @@ async function processExcelFile(
 
   // Add new headers to clean data sheet based on format
   const formatHeaders =
-    format === ExcelFormat.SHOPEE_DAILY
+    format === ExcelFormat.SHOPEE_MONTHLY
       ? shopeeNewRawDataHeaders
       : tiktokNewRawDataHeaders;
   const startColumns =
-    format === ExcelFormat.SHOPEE_DAILY
-      ? ["AE", "AF", "AG", "AH", "AI"]
-      : ["X", "Y", "Z", "AA", "AB"];
+    format === ExcelFormat.SHOPEE_MONTHLY
+      ? ["R"]
+      : ["X", "Y", "Z", "AA", "AB", "AC"];
 
   formatHeaders.forEach((header, index) => {
     const col = startColumns[index];
@@ -150,7 +195,7 @@ async function processExcelFile(
     const dataRanges = buildDataRanges(2, cleanLastRow, format); // Clean data always starts at row 2
 
     // Scan through clean data to count unique dates based on format
-    const dateColumn = format === ExcelFormat.SHOPEE_DAILY ? "AE" : "B";
+    const dateColumn = format === ExcelFormat.SHOPEE_MONTHLY ? "A" : "B";
     for (let row = 2; row <= cleanLastRow; row++) {
       const dateCell = cleanDataSheet.getCell(`${dateColumn}${row}`);
       if (dateCell.value && dateCell.value !== "") {
@@ -211,10 +256,27 @@ async function processExcelFile(
 
   if (cleanLastRow > 1) {
     const metricsFormatLastRow = uniqueDatesCount;
-    // Apply CTR/CTOR percentage formatting (columns V and W)
-    applyCTRCTORFormatting(cleanDataSheet, 2, cleanLastRow);
-    // Apply currency formatting to revenue columns
-    applyCurrencyFormatting(cleanDataSheet, 2, cleanLastRow, detectedCurrency);
+    // Apply percentage formatting to all percentage columns based on format definition
+    applyPercentageFormatting(cleanDataSheet, 2, cleanLastRow, format);
+    // Apply currency formatting to revenue columns based on format definition
+    applyCurrencyFormatting(cleanDataSheet, 2, cleanLastRow, detectedCurrency, format);
+    // Apply duration formatting to duration columns (decimal hours with 2 decimal places)
+    applyDurationFormatting(cleanDataSheet, 2, cleanLastRow, format);
+    // Format GMV/Hour column as currency
+    const currencyFormat = getAdvancedCurrencyFormat(detectedCurrency);
+    if (format === ExcelFormat.TIKTOK_LIVESTREAM) {
+      // Format GMV/Hour column (AC) as currency for TikTok format
+      for (let row = 2; row <= cleanLastRow; row++) {
+        const acCell = cleanDataSheet.getCell(`AC${row}`);
+        acCell.numFmt = currencyFormat;
+      }
+    } else if (format === ExcelFormat.SHOPEE_MONTHLY) {
+      // Format GMV/hour column (R) as currency for Shopee Monthly format
+      for (let row = 2; row <= cleanLastRow; row++) {
+        const rCell = cleanDataSheet.getCell(`R${row}`);
+        rCell.numFmt = currencyFormat;
+      }
+    }
 
     if (metricsFormatLastRow > 1) {
       applyMetricsFormatting(
@@ -282,9 +344,11 @@ async function processExcelFile(
   // Generate the output Excel buffer
   const outputBuffer = await outputWorkbook.xlsx.writeBuffer();
 
+  // Always output as XLSX format
+  const baseName = file.name.replace(/\.(xlsx?|csv)$/i, "");
   return {
     buffer: outputBuffer,
-    filename: `processed_${file.name}`,
+    filename: `${baseName}-processed.xlsx`,
   };
 }
 
