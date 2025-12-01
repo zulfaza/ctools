@@ -783,9 +783,42 @@ export function applyPercentageFormatting(
   });
 
   // Apply percentage formatting to all percentage columns
+  // Ensure values are stored as decimals (0.1412) but displayed as percentages (14.12%)
   for (let row = startRow; row <= lastRow; row++) {
     percentageColumns.forEach((colIndex) => {
       const cell = worksheet.getCell(row, colIndex);
+      const cellValue = cell.value;
+      
+      // Convert value to decimal if needed
+      // Ensure values are stored as decimals (0.1412) but displayed as percentages (14.12%)
+      if (cellValue !== null && cellValue !== undefined && cellValue !== "") {
+        let numericValue: number;
+        if (typeof cellValue === "number") {
+          numericValue = cellValue;
+        } else if (typeof cellValue === "string") {
+          // Try to parse string value
+          const cleaned = cellValue.toString().replace(/%/g, "").replace(/,/g, ".").trim();
+          numericValue = parseFloat(cleaned);
+          if (isNaN(numericValue)) {
+            return; // Skip if can't parse
+          }
+        } else {
+          return; // Skip non-numeric values
+        }
+        
+        // If value is > 1, it's likely stored as percentage number (14.12), convert to decimal (0.1412)
+        // If value is <= 1, assume it's already a decimal (0.1412)
+        // This handles common cases: 14.12% -> 0.1412, 0.1412 -> 0.1412
+        if (Math.abs(numericValue) > 1 && Math.abs(numericValue) <= 100) {
+          // Value is between 1 and 100, likely a percentage number, convert to decimal
+          cell.value = numericValue / 100;
+        } else {
+          // Value is <= 1 or > 100, assume it's already a decimal or keep as is
+          cell.value = numericValue;
+        }
+      }
+      
+      // Apply percentage format (displays as 14.12% when value is 0.1412)
       cell.numFmt = "0.00%";
     });
   }
