@@ -542,38 +542,138 @@ export function cleanAndCopyData(
     cleanDataSheet.getCell(1, colIndex + 1).value = header;
   });
 
-  // Copy and clean data starting from row 2 in clean sheet
-  let cleanRow = 2;
-  for (let rawRow = startRow; rawRow <= lastRow; rawRow++) {
-    headers.forEach((_, colIndex) => {
-      const rawCell = inputWorksheet.getCell(rawRow, colIndex + 1);
-      const cleanCell = cleanDataSheet.getCell(cleanRow, colIndex + 1);
+  // Special handling for Shopee format to support both old Monthly and new Daily CSV variants
+  if (format === ExcelFormat.SHOPEE_MONTHLY) {
+    // Detect which variant by checking the header row
+    const headerRow = startRow - 1;
+    const cellD = inputWorksheet.getCell(`D${headerRow}`);
+    const valueD = cellD.value?.toString().toLowerCase() || "";
+    const isOldFormat = valueD.includes("nama livestream") || valueD.includes("livestream");
 
-      const rawValue = rawCell.value;
-      const cleaningRule = cleaningRules[colIndex];
+    // Column mapping: [canonicalIndex] => sourceColumnIndex (0-based)
+    // Old format mapping (Monthly livestream)
+    // Old format columns: 0=Periode Data, 1=User Id, 2=No., 3=Nama Livestream, 4=Start Time, 5=Durasi,
+    // 6=Penonton Aktif, 7=Komentar, 8=Tambah ke Keranjang, 9=Durasi Rata-Rata Menonton, 10=Penonton,
+    // 11=Pesanan(Pesanan Dibuat), 12=Pesanan(Pesanan Siap Dikirim), 13=Produk Terjual(Pesanan Dibuat),
+    // 14=Produk Terjual(Pesanan Siap Dikirim), 15=Penjualan(Pesanan Dibuat), 16=Penjualan(Pesanan Siap Dikirim)
+    const oldFormatMapping: Record<number, number> = {
+      0: 0, // Periode Data
+      1: 1, // User Id
+      2: 15, // Penjualan(Pesanan Dibuat) - from column 15 (index 15)
+      3: 16, // Penjualan(Pesanan Siap Dikirim) - from column 16 (index 16)
+      4: 11, // Pesanan(Pesanan Dibuat) - from column 11 (index 11)
+      5: 12, // Pesanan(Pesanan Siap Dikirim) - from column 12 (index 12)
+      6: 13, // Produk Terjual(Pesanan Dibuat) - from column 13 (index 13)
+      7: 14, // Produk Terjual(Pesanan Siap Dikirim) - from column 14 (index 14)
+      8: 10, // Penonton - from column 10 (index 10)
+      9: 6, // Penonton Aktif - from column 6 (index 6)
+      10: 9, // Rata-rata durasi ditonton - from column 9 (Durasi Rata-Rata Menonton, index 9)
+      11: -1, // Persentase Klik - not in old format, use empty
+      12: -1, // Pesanan per Klik(Pesanan Dibuat) - not in old format, use empty
+      13: -1, // Pesanan per Klik(Pesanan Siap Dikirim) - not in old format, use empty
+      14: -1, // Suka - not in old format, use empty
+      15: -1, // Share - not in old format, use empty
+      16: 7, // Komentar - from column 7 (index 7)
+    };
 
-      let cleanedValue: string | number;
-      switch (cleaningRule) {
-        case "currency":
-          cleanedValue = cleanCurrencyValue(rawValue);
-          break;
-        case "percentage":
-          cleanedValue = cleanPercentageValue(rawValue);
-          break;
-        case "numeric":
-          cleanedValue = cleanNumericValue(rawValue);
-          break;
-        case "duration":
-          cleanedValue = cleanDurationValue(rawValue);
-          break;
-        default:
-          cleanedValue = cleanTextValue(rawValue);
-          break;
-      }
+    // New format mapping (Daily CSV) - direct mapping
+    const newFormatMapping: Record<number, number> = {
+      0: 0, // Periode Data
+      1: 1, // User Id
+      2: 2, // Penjualan(Pesanan Dibuat)
+      3: 3, // Penjualan(Pesanan Siap Dikirim)
+      4: 4, // Pesanan(Pesanan Dibuat)
+      5: 5, // Pesanan(Pesanan Siap Dikirim)
+      6: 6, // Produk Terjual(Pesanan Dibuat)
+      7: 7, // Produk Terjual(Pesanan Siap Dikirim)
+      8: 8, // Penonton
+      9: 9, // Penonton Aktif
+      10: 10, // Rata-rata durasi ditonton
+      11: 14, // Persentase Klik
+      12: 15, // Pesanan per Klik(Pesanan Dibuat)
+      13: 16, // Pesanan per Klik(Pesanan Siap Dikirim)
+      14: 23, // Suka
+      15: 24, // Share
+      16: 25, // Komentar
+    };
 
-      cleanCell.value = cleanedValue;
-    });
-    cleanRow++;
+    const columnMapping = isOldFormat ? oldFormatMapping : newFormatMapping;
+
+    // Copy and clean data starting from row 2 in clean sheet
+    let cleanRow = 2;
+    for (let rawRow = startRow; rawRow <= lastRow; rawRow++) {
+      headers.forEach((_, canonicalIndex) => {
+        const sourceColIndex = columnMapping[canonicalIndex];
+        const cleanCell = cleanDataSheet.getCell(cleanRow, canonicalIndex + 1);
+
+        let rawValue: unknown;
+        if (sourceColIndex === -1) {
+          // Column not available in this variant, use empty
+          rawValue = "";
+        } else {
+          const rawCell = inputWorksheet.getCell(rawRow, sourceColIndex + 1);
+          rawValue = rawCell.value;
+        }
+
+        const cleaningRule = cleaningRules[canonicalIndex];
+
+        let cleanedValue: string | number;
+        switch (cleaningRule) {
+          case "currency":
+            cleanedValue = cleanCurrencyValue(rawValue);
+            break;
+          case "percentage":
+            cleanedValue = cleanPercentageValue(rawValue);
+            break;
+          case "numeric":
+            cleanedValue = cleanNumericValue(rawValue);
+            break;
+          case "duration":
+            cleanedValue = cleanDurationValue(rawValue);
+            break;
+          default:
+            cleanedValue = cleanTextValue(rawValue);
+            break;
+        }
+
+        cleanCell.value = cleanedValue;
+      });
+      cleanRow++;
+    }
+  } else {
+    // Standard handling for other formats (TikTok, etc.)
+    let cleanRow = 2;
+    for (let rawRow = startRow; rawRow <= lastRow; rawRow++) {
+      headers.forEach((_, colIndex) => {
+        const rawCell = inputWorksheet.getCell(rawRow, colIndex + 1);
+        const cleanCell = cleanDataSheet.getCell(cleanRow, colIndex + 1);
+
+        const rawValue = rawCell.value;
+        const cleaningRule = cleaningRules[colIndex];
+
+        let cleanedValue: string | number;
+        switch (cleaningRule) {
+          case "currency":
+            cleanedValue = cleanCurrencyValue(rawValue);
+            break;
+          case "percentage":
+            cleanedValue = cleanPercentageValue(rawValue);
+            break;
+          case "numeric":
+            cleanedValue = cleanNumericValue(rawValue);
+            break;
+          case "duration":
+            cleanedValue = cleanDurationValue(rawValue);
+            break;
+          default:
+            cleanedValue = cleanTextValue(rawValue);
+            break;
+        }
+
+        cleanCell.value = cleanedValue;
+      });
+      cleanRow++;
+    }
   }
 }
 

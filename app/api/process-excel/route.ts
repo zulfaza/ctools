@@ -104,7 +104,7 @@ async function processExcelFile(
   const format = detectExcelFormat(inputWorksheet);
   if (format === ExcelFormat.UNSUPPORTED) {
     throw new Error(
-      "Unsupported file format. Supported formats: TikTok Livestream, Shopee Daily Report",
+      "Unsupported file format. Supported formats: TikTok Livestream, Shopee Livestream (Monthly/Daily CSV)",
     );
   }
 
@@ -149,6 +149,15 @@ async function processExcelFile(
   const cleanDataRows = lastRow - startRow + 1;
   const cleanLastRow = cleanDataRows + 1; // +1 because clean data starts at row 2
 
+  // Detect Shopee format variant for conditional formula generation
+  let isShopeeDailyFormat = false;
+  if (format === ExcelFormat.SHOPEE_MONTHLY) {
+    const headerRow = startRow - 1;
+    const cellD = inputWorksheet.getCell(`D${headerRow}`);
+    const valueD = cellD.value?.toString().toLowerCase() || "";
+    isShopeeDailyFormat = !(valueD.includes("nama livestream") || valueD.includes("livestream"));
+  }
+
   // Add new headers to clean data sheet based on format
   const formatHeaders =
     format === ExcelFormat.SHOPEE_MONTHLY
@@ -156,7 +165,7 @@ async function processExcelFile(
       : tiktokNewRawDataHeaders;
   const startColumns =
     format === ExcelFormat.SHOPEE_MONTHLY
-      ? ["R"]
+      ? ["R", "S", "T", "U", "V", "W"]
       : ["X", "Y", "Z", "AA", "AB", "AC"];
 
   formatHeaders.forEach((header, index) => {
@@ -167,7 +176,156 @@ async function processExcelFile(
   // Add formulas for the new columns in clean data (using row 2+ as data start)
   if (cleanLastRow > 1) {
     for (let row = 2; row <= cleanLastRow; row++) {
-      const formulas = generateRawDataFormulas(row, format);
+      let formulas: Record<string, string>;
+      if (format === ExcelFormat.SHOPEE_MONTHLY) {
+        // Generate Shopee formulas based on variant
+        if (isShopeeDailyFormat) {
+          // Daily CSV format: Start date from Periode Data, no start/end time
+          // Extract date directly from Periode Data column (A) - format is DD-MM-YYYY
+          const periodeDataCell = cleanDataSheet.getCell(`A${row}`);
+          const periodeDataValue = periodeDataCell.value;
+          
+          let startDateValue: string = "";
+          if (periodeDataValue) {
+            if (typeof periodeDataValue === "string") {
+              // String like "01-11-2025" -> parse as DD-MM-YYYY (1st November 2025)
+              const datePart = periodeDataValue.split(" ")[0]; // In case there's time part
+              const [day, month, year] = datePart.split("-");
+              if (day && month && year) {
+                // Parse as DD-MM-YYYY format
+                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                // Use TZDate to ensure correct timezone handling
+                startDateValue = new TZDate(dateObj, "Asia/Jakarta").toISOString().split("T")[0];
+              } else {
+                startDateValue = datePart;
+              }
+            } else if (periodeDataValue instanceof Date) {
+              startDateValue = new TZDate(periodeDataValue, "Asia/Jakarta").toISOString().split("T")[0];
+            } else if (typeof periodeDataValue === "number") {
+              // Excel serial date
+              const dateObj = new Date((periodeDataValue - 25569) * 86400 * 1000); // Convert Excel serial to JS date
+              startDateValue = new TZDate(dateObj, "Asia/Jakarta").toISOString().split("T")[0];
+            }
+          }
+          
+          // Set Start Date (R) directly
+          const rCell = cleanDataSheet.getCell(`R${row}`);
+          rCell.value = startDateValue;
+          
+          // Use formulas for other columns
+          formulas = {
+            S: `""`, // Start Time (not used for daily)
+            T: `""`, // End Time (not used for daily)
+            U: `IFERROR(IF(R${row}<>"",WEEKNUM(R${row},2),""),"")`, // Week in Year
+            V: `IFERROR(IF(R${row}<>"",MONTH(R${row}),""),"")`, // Month Index
+            W: `0`, // GMV/hour (not applicable for daily format)
+          };
+        } else {
+          // Monthly format: Extract Start Date, Start Time, and calculate End Time directly from raw data
+          const rawDataRow = startRow + (row - 2); // Map clean row to original raw data row
+          
+          // Get Start Time value from raw data (column E)
+          const startTimeCell = inputWorksheet.getCell(`E${rawDataRow}`);
+          const startTimeValue = startTimeCell.value;
+          
+          // Extract Start Date (R)
+          let startDateValue: number | string = "";
+          if (startTimeValue) {
+            if (startTimeValue instanceof Date) {
+              startDateValue = new TZDate(startTimeValue, "Asia/Jakarta").toISOString().split("T")[0];
+            } else if (typeof startTimeValue === "number") {
+              // Excel serial number - use integer part (date only)
+              startDateValue = new TZDate(startTimeValue, "Asia/Jakarta").toISOString().split("T")[0];
+            } else if (typeof startTimeValue === "string") {
+              // String like "29-11-2025 12:58" -> extract "29-11-2025"
+              const datePart = startTimeValue.split(" ")[0];
+              // String like "01-11-2025" -> parse as DD-MM-YYYY (1st November 2025)
+              const [day, month, year] = datePart.split("-");
+              if (day && month && year) {
+                // Parse as DD-MM-YYYY format
+                const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                // Use TZDate to ensure correct timezone handling
+                startDateValue = new TZDate(dateObj, "Asia/Jakarta").toISOString().split("T")[0];
+              } else{
+                startDateValue = datePart ;
+              }
+             
+            }
+          }
+          
+          // Extract Start Time (S) - "29-11-2025 12:58" -> "12:58"
+          let startTimeOnly: number | null = null;
+          if (startTimeValue) {
+            if (startTimeValue instanceof Date) {
+              // Extract time portion as fraction of day
+              const hours = startTimeValue.getHours();
+              const minutes = startTimeValue.getMinutes();
+              startTimeOnly = (hours * 60 + minutes) / 1440; // Convert to fraction of day
+            } else if (typeof startTimeValue === "number") {
+              // Excel serial number - extract fractional part (time)
+              startTimeOnly = startTimeValue - Math.floor(startTimeValue);
+            } else if (typeof startTimeValue === "string") {
+              // String like "29-11-2025 12:58" -> extract "12:58"
+              const timePart = startTimeValue.split(" ")[1];
+              if (timePart) {
+                const [hours, minutes] = timePart.split(":").map(Number);
+                if (!isNaN(hours) && !isNaN(minutes)) {
+                  startTimeOnly = (hours * 60 + minutes) / 1440; // Convert to fraction of day
+                }
+              }
+            }
+          }
+          
+          // Calculate End Time (T) = Start Time + Duration
+          // Use null check instead of truthy check to handle 00:00 (which is 0, falsy)
+          let endTimeValue: number | string = "";
+          const durasiCell = inputWorksheet.getCell(`F${rawDataRow}`);
+          const durasiValue = durasiCell.value;
+          
+          if (startTimeOnly !== null && durasiValue) {
+            let durasiInDays = 0;
+            if (typeof durasiValue === "number") {
+              // Durasi in seconds, convert to days
+              durasiInDays = durasiValue / 86400;
+            } else if (typeof durasiValue === "string") {
+              // Durasi in time format "HH:MM:SS" or "HH:MM"
+              const timeParts = durasiValue.split(":");
+              if (timeParts.length >= 2) {
+                const hours = parseInt(timeParts[0]) || 0;
+                const minutes = parseInt(timeParts[1]) || 0;
+                const seconds = timeParts[2] ? parseInt(timeParts[2]) : 0;
+                durasiInDays = (hours * 3600 + minutes * 60 + seconds) / 86400;
+              }
+            }
+            endTimeValue = startTimeOnly + durasiInDays;
+          } else if (startTimeOnly !== null) {
+            // If no duration, end time equals start time
+            endTimeValue = startTimeOnly;
+          }
+          
+          // Set Start Date (R), Start Time (S), and End Time (T) directly
+          const rCell = cleanDataSheet.getCell(`R${row}`);
+          rCell.value = startDateValue;
+          
+          const sCell = cleanDataSheet.getCell(`S${row}`);
+          sCell.value = startTimeOnly !== null ? startTimeOnly : "";
+          sCell.numFmt = "HH:mm"; // Format as 24-hour time
+          
+          const tCell = cleanDataSheet.getCell(`T${row}`);
+          tCell.value = endTimeValue;
+          tCell.numFmt = "HH:mm"; // Format as 24-hour time
+          
+          // Use formulas for other columns
+          formulas = {
+            U: `IFERROR(IF(R${row}<>"",WEEKNUM(R${row},2),""),"")`, // Week in Year
+            V: `IFERROR(IF(R${row}<>"",MONTH(R${row}),""),"")`, // Month Index
+            // GMV/hour = Penjualan(Pesanan Siap Dikirim) / Durasi (in hours)
+            W: `IFERROR(IF('raw data'!F${rawDataRow}>0,IF(ISNUMBER('raw data'!F${rawDataRow}),D${row}/('raw data'!F${rawDataRow}/3600),D${row}/('raw data'!F${rawDataRow}*24)),0),0)`, // GMV/hour
+          };
+        }
+      } else {
+        formulas = generateRawDataFormulas(row, format);
+      }
 
       // Set formulas for each new column
       Object.entries(formulas).forEach(([col, formula]) => {
@@ -195,7 +353,8 @@ async function processExcelFile(
     const dataRanges = buildDataRanges(2, cleanLastRow, format); // Clean data always starts at row 2
 
     // Scan through clean data to count unique dates based on format
-    const dateColumn = format === ExcelFormat.SHOPEE_MONTHLY ? "A" : "B";
+    // For Shopee, use the Start Date column (R) which is calculated from Periode Data
+    const dateColumn = format === ExcelFormat.SHOPEE_MONTHLY ? "R" : "B";
     for (let row = 2; row <= cleanLastRow; row++) {
       const dateCell = cleanDataSheet.getCell(`${dateColumn}${row}`);
       if (dateCell.value && dateCell.value !== "") {
@@ -271,10 +430,16 @@ async function processExcelFile(
         acCell.numFmt = currencyFormat;
       }
     } else if (format === ExcelFormat.SHOPEE_MONTHLY) {
-      // Format GMV/hour column (R) as currency for Shopee Monthly format
+      // Format GMV/hour column (W) as currency for Shopee format
+      for (let row = 2; row <= cleanLastRow; row++) {
+        const wCell = cleanDataSheet.getCell(`W${row}`);
+        wCell.numFmt = currencyFormat;
+      }
+      // Format Start Date column (R) as date for Shopee format
+      // Use DD-MM-YYYY format to match the input data format
       for (let row = 2; row <= cleanLastRow; row++) {
         const rCell = cleanDataSheet.getCell(`R${row}`);
-        rCell.numFmt = currencyFormat;
+        rCell.numFmt = "dd-mm-yyyy"; // Format as DD-MM-YYYY
       }
     }
 
